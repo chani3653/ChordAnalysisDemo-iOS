@@ -7,6 +7,7 @@
 
 import UIKit
 import YouTubePlayerKit
+import Kingfisher
 
 class PlayerViewController: UIViewController {
 
@@ -18,12 +19,20 @@ class PlayerViewController: UIViewController {
     @IBOutlet weak var playPauseButton: UIButton!
     @IBOutlet weak var backwardButton: UIButton!
     @IBOutlet weak var forwardButton: UIButton!
+    @IBOutlet weak var backButton: UIButton!
     @IBOutlet weak var playerContainerView: UIView!
-
+    @IBOutlet weak var backgroundImageView: UIImageView!
+    @IBOutlet weak var repeatButton: UIButton!
+    @IBOutlet weak var repeatALabel: UILabel!
+    @IBOutlet weak var repeatBarLabel: UILabel!
+    @IBOutlet weak var repeatBLabel: UILabel!
+    @IBOutlet weak var contorolPannelView: UIView!
+    
     var videoId: String?
     var durationText: String?
     var titleText: String?
     var artistText: String?
+    var thumbnailURLString: String?
 
     private var youTubePlayer: YouTubePlayer?
     private var youTubePlayerHostingView: YouTubePlayerHostingView?
@@ -31,6 +40,16 @@ class PlayerViewController: UIViewController {
     private var isSeeking = false
     private var isPlaying = false
     private var durationSeconds: Double?
+    private var lastPlaybackStateCheck: Date?
+    private var repeatState: RepeatState = .none
+    private var repeatStartSeconds: Double?
+    private var repeatEndSeconds: Double?
+
+    private enum RepeatState {
+        case none
+        case startSet
+        case endSet
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -41,6 +60,9 @@ class PlayerViewController: UIViewController {
         nowTimeLabel.text = "0:00"
         timeSlider.value = 0
         updatePlayPauseButton()
+        applyThumbnail()
+        updateBackButtonColor()
+        updateRepeatUI(active: false, isStartActive: false, isEndActive: false)
 
         setupYouTubePlayer()
     }
@@ -48,6 +70,15 @@ class PlayerViewController: UIViewController {
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         stopPlaybackTimer()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        applyControlPanelShadow()
+    }
+
+    override var preferredStatusBarStyle: UIStatusBarStyle {
+        return .lightContent
     }
 
     @IBAction func backButtonTapped(_ sender: UIButton) {
@@ -89,6 +120,23 @@ class PlayerViewController: UIViewController {
         seekTo(seconds: Double(sender.value))
     }
 
+    @IBAction func repeatButtonTapped(_ sender: UIButton) {
+        Task {
+            await handleRepeatButtonTap()
+        }
+    }
+
+    @IBAction func seekToStartTapped(_ sender: UIButton) {
+        repeatState = .none
+        repeatStartSeconds = nil
+        repeatEndSeconds = nil
+        updateRepeatUI(active: false, isStartActive: false, isEndActive: false)
+
+        seekTo(seconds: 0)
+        nowTimeLabel.text = "0:00"
+        timeSlider.value = 0
+    }
+
     private func setupYouTubePlayer() {
         guard let videoId, !videoId.isEmpty else { return }
 
@@ -126,6 +174,97 @@ class PlayerViewController: UIViewController {
         playPauseButton.setImage(image, for: .normal)
     }
 
+    private func updatePlaybackStateIfNeeded() async {
+        let now = Date()
+        if let last = lastPlaybackStateCheck, now.timeIntervalSince(last) < 0.8 {
+            return
+        }
+        lastPlaybackStateCheck = now
+
+        guard let youTubePlayer else { return }
+        if let info = try? await youTubePlayer.getInformation() {
+            let playing = info.playerState == .playing
+            if playing != isPlaying {
+                isPlaying = playing
+                updatePlayPauseButton()
+            }
+        }
+    }
+
+    private func updateBackButtonColor() {
+        let isLight = preferredStatusBarStyle == .lightContent
+        backButton.tintColor = isLight ? .white : .black
+    }
+
+    private func applyControlPanelShadow() {
+        contorolPannelView.layer.shadowColor = UIColor.white.cgColor
+        contorolPannelView.layer.shadowOpacity = 1
+        contorolPannelView.layer.shadowRadius = 15
+        contorolPannelView.layer.shadowOffset = CGSize(width: 0, height: -35)
+        contorolPannelView.layer.masksToBounds = false
+        let expandedBounds = contorolPannelView.bounds.insetBy(dx: -45, dy: -10)
+        contorolPannelView.layer.shadowPath = UIBezierPath(rect: expandedBounds).cgPath
+    }
+
+    private func updateRepeatUI(active: Bool, isStartActive: Bool, isEndActive: Bool) {
+        let activeColor = UIColor.systemGreen
+        let inactiveColor = UIColor.black
+
+        repeatButton.tintColor = active ? activeColor : inactiveColor
+        repeatALabel.textColor = isStartActive ? activeColor : inactiveColor
+        repeatBarLabel.textColor = isStartActive ? activeColor : inactiveColor
+        repeatBLabel.textColor = isEndActive ? activeColor : inactiveColor
+    }
+
+    private func handleRepeatButtonTap() async {
+        guard let youTubePlayer else { return }
+        let currentValue = (try? await youTubePlayer.getCurrentTime())?.converted(to: .seconds).value ?? 0
+
+        switch repeatState {
+        case .none:
+            repeatStartSeconds = currentValue
+            repeatEndSeconds = nil
+            repeatState = .startSet
+            updateRepeatUI(active: true, isStartActive: true, isEndActive: false)
+        case .startSet:
+            repeatEndSeconds = max(currentValue, repeatStartSeconds ?? 0)
+            repeatState = .endSet
+            updateRepeatUI(active: true, isStartActive: true, isEndActive: true)
+            if let start = repeatStartSeconds {
+                let startTime = Measurement(value: start, unit: UnitDuration.seconds)
+                try? await youTubePlayer.seek(to: startTime, allowSeekAhead: true)
+                if !isPlaying {
+                    try? await youTubePlayer.play()
+                    isPlaying = true
+                    updatePlayPauseButton()
+                }
+            }
+        case .endSet:
+            repeatState = .none
+            repeatStartSeconds = nil
+            repeatEndSeconds = nil
+            updateRepeatUI(active: false, isStartActive: false, isEndActive: false)
+        }
+    }
+
+    private func enforceRepeatIfNeeded(currentSeconds: Double) async {
+        guard repeatState == .endSet,
+              let start = repeatStartSeconds,
+              let end = repeatEndSeconds else { return }
+
+        if currentSeconds >= end {
+            let startTime = Measurement(value: start, unit: UnitDuration.seconds)
+            try? await youTubePlayer?.seek(to: startTime, allowSeekAhead: true)
+        }
+    }
+
+    private func applyThumbnail() {
+        backgroundImageView.contentMode = .scaleAspectFill
+        backgroundImageView.clipsToBounds = true
+        guard let urlString = thumbnailURLString, let url = URL(string: urlString) else { return }
+        backgroundImageView.kf.setImage(with: url)
+    }
+
     private func startPlaybackTimer() {
         playbackTimer?.invalidate()
         playbackTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
@@ -159,10 +298,12 @@ class PlayerViewController: UIViewController {
         if durationSeconds == nil {
             await updateDurationIfNeeded()
         }
+        await updatePlaybackStateIfNeeded()
         if let currentTime = try? await youTubePlayer.getCurrentTime() {
             let currentValue = currentTime.converted(to: .seconds).value
             nowTimeLabel.text = formatTime(seconds: currentValue)
             timeSlider.value = Float(currentValue)
+            await enforceRepeatIfNeeded(currentSeconds: currentValue)
         }
     }
 

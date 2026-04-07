@@ -214,7 +214,7 @@
                                                 </userDefinedRuntimeAttributes>
                                             </view>
                                         </subviews>
-                                        <color key="backgroundColor" systemColor="tintColor"/>
+                                        <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
                                         <constraints>
                                             <constraint firstItem="BEY-Sj-lvA" firstAttribute="leading" secondItem="lVF-3w-7Mf" secondAttribute="leading" constant="10" id="6Wf-K4-f4w"/>
                                             <constraint firstAttribute="bottom" secondItem="BEY-Sj-lvA" secondAttribute="bottom" constant="10" id="Dag-uv-LZC"/>
@@ -225,7 +225,8 @@
                                         </constraints>
                                     </view>
                                 </subviews>
-                                <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                                <color key="backgroundColor" red="0.61960784313725492" green="0.84705882352941175" blue="1" alpha="1" colorSpace="calibratedRGB"/>
+                                <color key="tintColor" systemColor="tintColor"/>
                                 <constraints>
                                     <constraint firstAttribute="bottom" secondItem="lVF-3w-7Mf" secondAttribute="bottom" id="KKs-jA-3UZ"/>
                                     <constraint firstItem="lVF-3w-7Mf" firstAttribute="leading" secondItem="lQ8-Xu-AkE" secondAttribute="leading" id="tPx-6d-v69"/>

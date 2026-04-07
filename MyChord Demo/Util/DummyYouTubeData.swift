@@ -12,6 +12,12 @@ struct DummyYouTubeData {
     static let totalCount = 100
     static let pageSize = 50
     static let defaultQuery = "Sample"
+    static let demoVideoId = "ItSKahBISg0"
+    static let demoTitle = "YENA(최예나) - '캐치 캐치' M/V"
+    static let demoArtist = "YENA(최예나)"
+    static let demoDurationText = "3:08"
+    static let demoPublishedAt = "2026.03.11"
+    static let demoThumbnailURL = "https://i.ytimg.com/vi/ItSKahBISg0/hq720.jpg?sqp=-oaymwEnCNAFEJQDSFryq4qpAxkIARUAAIhCGAHYAQHiAQoIGBACGAY4AUAB&rs=AOn4CLAXfIiTH_ZXxqNn6hGH-nnkSlqlew"
 
     struct DummyVideoItem {
         let searchItem: YouTubeSearchItem
@@ -19,41 +25,35 @@ struct DummyYouTubeData {
         let durationText: String
     }
 
-    static func makeItems(query: String?, count: Int) -> [DummyVideoItem] {
-        let safeQuery = (query?.isEmpty == false) ? query! : defaultQuery
+    static func makeItems(query _: String?, count: Int) -> [DummyVideoItem] {
         var items: [DummyVideoItem] = []
         items.reserveCapacity(count)
 
-        for index in 1...count {
-            let videoId = "ItSKahBISg0"
-            let title = "\(safeQuery) Dummy Song \(String(format: "%03d", index))"
-            let channel = "Dummy Artist \(String(format: "%03d", index))"
-            let durationText = makeDurationText(index: index)
+        let thumbnail = ThumbnailInfo(url: demoThumbnailURL, width: nil, height: nil)
+        let thumbnails = Thumbnails(default: thumbnail, medium: thumbnail, high: thumbnail)
+
+        for _ in 1...count {
+            let title = demoTitle
+            let channel = demoArtist
+            let durationText = demoDurationText
 
             let snippet = Snippet(
-                publishedAt: nil,
+                publishedAt: demoPublishedAt,
                 channelId: nil,
                 title: title,
                 description: "This is dummy video data.",
-                thumbnails: nil,
+                thumbnails: thumbnails,
                 channelTitle: channel,
                 liveBroadcastContent: nil,
                 publishTime: nil
             )
-            let id = VideoID(kind: "youtube#video", videoId: videoId, channelId: nil, playlistId: nil, rawId: nil)
+            let id = VideoID(kind: "youtube#video", videoId: demoVideoId, channelId: nil, playlistId: nil, rawId: nil)
             let item = YouTubeSearchItem(kind: "youtube#searchResult", etag: nil, id: id, snippet: snippet)
 
-            items.append(DummyVideoItem(searchItem: item, videoId: videoId, durationText: durationText))
+            items.append(DummyVideoItem(searchItem: item, videoId: demoVideoId, durationText: durationText))
         }
 
         return items
-    }
-
-    private static func makeDurationText(index: Int) -> String {
-        let seconds = 60 + (index % 361)
-        let minutesPart = seconds / 60
-        let secondsPart = seconds % 60
-        return String(format: "%d:%02d", minutesPart, secondsPart)
     }
 }
 private extension VideoID {

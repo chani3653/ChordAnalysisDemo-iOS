@@ -61,6 +61,9 @@ extension MainViewController: UITableViewDelegate {
             playerViewController.durationText = item.durationText
             playerViewController.titleText = item.searchItem.snippet.title
             playerViewController.artistText = item.searchItem.snippet.channelTitle
+            playerViewController.thumbnailURLString = item.searchItem.snippet.thumbnails?.high?.url
+                ?? item.searchItem.snippet.thumbnails?.medium?.url
+                ?? item.searchItem.snippet.thumbnails?.default?.url
         }
 
         viewController.modalPresentationStyle = .fullScreen
