@@ -27,6 +27,7 @@ class PlayerViewController: UIViewController {
     @IBOutlet weak var repeatBarLabel: UILabel!
     @IBOutlet weak var repeatBLabel: UILabel!
     @IBOutlet weak var contorolPannelView: UIView!
+    @IBOutlet weak var chordCollectionView: UICollectionView!
     
     var videoId: String?
     var durationText: String?
@@ -44,6 +45,13 @@ class PlayerViewController: UIViewController {
     private var repeatState: RepeatState = .none
     private var repeatStartSeconds: Double?
     private var repeatEndSeconds: Double?
+    var chordTimeline: [ChordTimelineEntry] = []
+    var currentChordIndex: Int?
+    let chordCellTopPadding: CGFloat = 0
+    let chordCellBottomPadding: CGFloat = 0
+    let chordCellSideInset: CGFloat = 20
+    let chordCellLineSpacing: CGFloat = 8
+    private var carouselLayout: CarouselFlowLayout?
 
     private enum RepeatState {
         case none
@@ -64,7 +72,10 @@ class PlayerViewController: UIViewController {
         updateBackButtonColor()
         updateRepeatUI(active: false, isStartActive: false, isEndActive: false)
 
+        configureChordCollectionView()
+        loadDemoChordTimelineIfNeeded()
         setupYouTubePlayer()
+        updateChordLayout()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -75,6 +86,14 @@ class PlayerViewController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         applyControlPanelShadow()
+        updateChordLayout()
+    }
+
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            self?.updateChordLayout()
+        }
     }
 
     override var preferredStatusBarStyle: UIStatusBarStyle {
@@ -168,10 +187,66 @@ class PlayerViewController: UIViewController {
         }
     }
 
+    private func configureChordCollectionView() {
+        chordCollectionView.dataSource = self
+        chordCollectionView.delegate = self
+        chordCollectionView.decelerationRate = .fast
+        chordCollectionView.showsHorizontalScrollIndicator = false
+    }
+
+    private func updateChordLayout() {
+        let height = chordCollectionView.bounds.height
+        guard height > 0 else { return }
+
+        let itemSizeValue = max(0, height - (chordCellTopPadding + chordCellBottomPadding))
+
+        if carouselLayout == nil {
+            let layout = CarouselFlowLayout()
+            layout.sideItemScale = 0.8
+            layout.sideItemAlpha = 0.6
+            layout.spacing = chordCellLineSpacing
+            layout.itemSize = CGSize(width: itemSizeValue, height: itemSizeValue)
+            chordCollectionView.setCollectionViewLayout(layout, animated: false)
+            carouselLayout = layout
+        } else if let layout = carouselLayout {
+            layout.itemSize = CGSize(width: itemSizeValue, height: itemSizeValue)
+            layout.invalidateLayout()
+        }
+
+        carouselLayout?.updateContentInset()
+        chordCollectionView.reloadData()
+    }
+
+    private func loadDemoChordTimelineIfNeeded() {
+        if chordTimeline.isEmpty {
+            let duration = durationSeconds ?? 180
+            applyChordTimeline(ChordTimelineDemo.makeDemoTimeline(durationSeconds: duration))
+        }
+    }
+
+    func applyChordTimeline(_ timeline: [ChordTimelineEntry]) {
+        chordTimeline = timeline.sorted { $0.timeMs < $1.timeMs }
+        currentChordIndex = nil
+        chordCollectionView.reloadData()
+        scrollToChordIndexIfNeeded(0)
+    }
+
+    private func scrollToChordIndexIfNeeded(_ index: Int) {
+        guard !chordTimeline.isEmpty else { return }
+        let targetIndex = max(0, min(index, chordTimeline.count - 1))
+        let indexPath = IndexPath(item: targetIndex, section: 0)
+        chordCollectionView.scrollToItem(at: indexPath, at: .centeredHorizontally, animated: false)
+    }
+
     private func updatePlayPauseButton() {
         let imageName = isPlaying ? "pause.fill" : "play.fill"
         let image = UIImage(systemName: imageName)
         playPauseButton.setImage(image, for: .normal)
+        updateChordCollectionViewScrolling()
+    }
+
+    private func updateChordCollectionViewScrolling() {
+        chordCollectionView.isScrollEnabled = !isPlaying
     }
 
     private func updatePlaybackStateIfNeeded() async {
@@ -205,6 +280,10 @@ class PlayerViewController: UIViewController {
         let expandedBounds = contorolPannelView.bounds.insetBy(dx: -45, dy: -10)
         contorolPannelView.layer.shadowPath = UIBezierPath(rect: expandedBounds).cgPath
     }
+
+
+
+
 
     private func updateRepeatUI(active: Bool, isStartActive: Bool, isEndActive: Bool) {
         let activeColor = UIColor.systemGreen
@@ -290,6 +369,9 @@ class PlayerViewController: UIViewController {
             if totalTimeLabel.text?.isEmpty != false {
                 totalTimeLabel.text = formatTime(seconds: durationValue)
             }
+            if chordTimeline.isEmpty {
+                applyChordTimeline(ChordTimelineDemo.makeDemoTimeline(durationSeconds: durationValue))
+            }
         }
     }
 
@@ -303,6 +385,7 @@ class PlayerViewController: UIViewController {
             let currentValue = currentTime.converted(to: .seconds).value
             nowTimeLabel.text = formatTime(seconds: currentValue)
             timeSlider.value = Float(currentValue)
+            updateChordScroll(currentSeconds: currentValue)
             await enforceRepeatIfNeeded(currentSeconds: currentValue)
         }
     }
@@ -326,6 +409,36 @@ class PlayerViewController: UIViewController {
             let targetTime = Measurement(value: seconds, unit: UnitDuration.seconds)
             try? await youTubePlayer.seek(to: targetTime, allowSeekAhead: true)
         }
+    }
+
+    private func updateChordScroll(currentSeconds: Double) {
+        guard !chordTimeline.isEmpty else { return }
+        let currentMs = Int(currentSeconds * 1000)
+        let index = chordIndex(for: currentMs)
+        guard index != currentChordIndex else { return }
+        currentChordIndex = index
+
+        let indexPath = IndexPath(item: index, section: 0)
+        DispatchQueue.main.async { [weak self] in
+            self?.chordCollectionView.scrollToItem(at: indexPath, at: .centeredHorizontally, animated: true)
+        }
+    }
+
+    private func chordIndex(for currentMs: Int) -> Int {
+        var low = 0
+        var high = chordTimeline.count - 1
+        var result = 0
+
+        while low <= high {
+            let mid = (low + high) / 2
+            if chordTimeline[mid].timeMs <= currentMs {
+                result = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return result
     }
 
     private func formatTime(seconds: Double) -> String {

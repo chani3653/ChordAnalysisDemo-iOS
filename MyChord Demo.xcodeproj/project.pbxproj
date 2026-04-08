@@ -10,6 +10,7 @@
 		4836F3922F83A48400522F8C /* Kingfisher in Frameworks */ = {isa = PBXBuildFile; productRef = 4836F3912F83A48400522F8C /* Kingfisher */; };
 		4836F3952F83A49300522F8C /* Alamofire in Frameworks */ = {isa = PBXBuildFile; productRef = 4836F3942F83A49300522F8C /* Alamofire */; };
 		4836F3A32F83C42500522F8C /* YouTubePlayerKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4836F3A22F83C42500522F8C /* YouTubePlayerKit */; };
+		485099F62F85463700A52F3D /* ScalingCarousel in Frameworks */ = {isa = PBXBuildFile; productRef = 485099F52F85463700A52F3D /* ScalingCarousel */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -44,6 +45,7 @@
 			files = (
 				4836F3922F83A48400522F8C /* Kingfisher in Frameworks */,
 				4836F3952F83A49300522F8C /* Alamofire in Frameworks */,
+				485099F62F85463700A52F3D /* ScalingCarousel in Frameworks */,
 				4836F3A32F83C42500522F8C /* YouTubePlayerKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -90,6 +92,7 @@
 				4836F3912F83A48400522F8C /* Kingfisher */,
 				4836F3942F83A49300522F8C /* Alamofire */,
 				4836F3A22F83C42500522F8C /* YouTubePlayerKit */,
+				485099F52F85463700A52F3D /* ScalingCarousel */,
 			);
 			productName = "MyChord Demo";
 			productReference = 48D9F19E2F838D5700E54BA6 /* MyChord Demo.app */;
@@ -123,6 +126,7 @@
 				4836F3902F83A48400522F8C /* XCRemoteSwiftPackageReference "Kingfisher" */,
 				4836F3932F83A49300522F8C /* XCRemoteSwiftPackageReference "Alamofire" */,
 				4836F3A12F83C42500522F8C /* XCRemoteSwiftPackageReference "YouTubePlayerKit" */,
+				485099F42F85463700A52F3D /* XCRemoteSwiftPackageReference "ScalingCarousel" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 48D9F19F2F838D5700E54BA6 /* Products */;
@@ -390,6 +394,14 @@
 				minimumVersion = 2.0.5;
 			};
 		};
+		485099F42F85463700A52F3D /* XCRemoteSwiftPackageReference "ScalingCarousel" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/superpeteblaze/ScalingCarousel.git";
+			requirement = {
+				branch = master;
+				kind = branch;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -407,6 +419,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 4836F3A12F83C42500522F8C /* XCRemoteSwiftPackageReference "YouTubePlayerKit" */;
 			productName = YouTubePlayerKit;
+		};
+		485099F52F85463700A52F3D /* ScalingCarousel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 485099F42F85463700A52F3D /* XCRemoteSwiftPackageReference "ScalingCarousel" */;
+			productName = ScalingCarousel;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

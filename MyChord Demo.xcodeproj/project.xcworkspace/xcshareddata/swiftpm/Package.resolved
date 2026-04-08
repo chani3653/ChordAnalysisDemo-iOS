@@ -1,5 +1,5 @@
 {
-  "originHash" : "d7a198709ade772db3a1520921c043497c20360fc4dc8ce4231b88ce796c8768",
+  "originHash" : "6b7502c1a36f1f6c9c6b7f780a4721fe5803033f26ae62896b3485ff4f2f140e",
   "pins" : [
     {
       "identity" : "alamofire",
@@ -17,6 +17,15 @@
       "state" : {
         "revision" : "c152c1915f60c51e4afa0752656993ee5b3c63db",
         "version" : "8.8.1"
+      }
+    },
+    {
+      "identity" : "scalingcarousel",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/superpeteblaze/ScalingCarousel.git",
+      "state" : {
+        "branch" : "master",
+        "revision" : "f2bfde4db386243fd4e0e4687fcfff530c239c20"
       }
     },
     {
