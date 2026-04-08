@@ -7,27 +7,29 @@
 
 import UIKit
 
-/// 가운데 셀이 크고 양옆 셀이 작아지는 수평 캐러셀 레이아웃.
-/// UICollectionViewFlowLayout을 상속하며 외부 라이브러리 없이 동작한다.
+/// 가운데 셀이 크고 위아래 셀이 작아지는 세로 캐러셀 레이아웃.
 ///
-/// 조절 가능한 프로퍼티:
-///   - `sideItemScale`  : 양옆 셀의 최소 스케일 (0.0 ~ 1.0, 기본 0.8)
-///   - `sideItemAlpha`  : 양옆 셀의 최소 알파 (0.0 ~ 1.0, 기본 0.6)
-///   - `spacing`        : 셀 간 최소 간격 (= minimumLineSpacing 에 반영)
-///
-/// itemSize, minimumLineSpacing 등은 이 클래스 인스턴스를 만든 뒤
-/// 직접 설정하거나 `setup()` 안에서 기본값을 변경하면 된다.
+/// 깜빡임 방지를 위한 핵심 설계:
+///   1. layoutAttributesForElements / layoutAttributesForItem 모두에서 copy() 후 transform 적용
+///   2. shouldInvalidateLayout = true 이지만, collectionView.reloadData()는 최소화
+///   3. transform은 오직 layout에서만 관리 — 셀은 건드리지 않음
 final class CarouselFlowLayout: UICollectionViewFlowLayout {
 
     // MARK: - 조절 가능한 값
 
-    /// 양옆 셀의 최소 스케일. 1.0이면 스케일 변화 없음.
+    /// 가운데 셀의 스케일 (1.0보다 크면 강조)
+    var centerItemScale: CGFloat = 1.15
+
+    /// 가장 먼 셀의 최소 스케일
     var sideItemScale: CGFloat = 0.8
 
-    /// 양옆 셀의 최소 알파. 1.0이면 알파 변화 없음.
+    /// 가장 먼 셀의 최소 알파
     var sideItemAlpha: CGFloat = 0.6
 
-    /// 셀 사이 간격 (minimumLineSpacing 에 매핑)
+    /// X축 회전 최대 각도(라디안). 0이면 기울기 없음.
+    var maxTiltAngle: CGFloat = .pi / 6
+
+    /// 셀 사이 간격 (= minimumLineSpacing)
     var spacing: CGFloat = 20 {
         didSet { minimumLineSpacing = spacing }
     }
@@ -45,59 +47,82 @@ final class CarouselFlowLayout: UICollectionViewFlowLayout {
     }
 
     private func setup() {
-        scrollDirection = .horizontal
+        scrollDirection = .vertical
         minimumLineSpacing = spacing
     }
 
-    // MARK: - Content Inset Helper
+    // MARK: - Content Inset
 
-    /// 첫/마지막 셀도 화면 중앙에 올 수 있도록 contentInset을 설정한다.
-    /// collectionView가 레이아웃에 연결된 뒤(viewDidLayoutSubviews 등)에서 호출하면 된다.
+    /// 첫/마지막 셀도 화면 중앙에 올 수 있도록 contentInset 설정.
     func updateContentInset() {
         guard let cv = collectionView else { return }
-        let sideInset = (cv.bounds.width - itemSize.width) / 2
-        cv.contentInset = UIEdgeInsets(top: 0, left: sideInset, bottom: 0, right: sideInset)
+        let inset = (cv.bounds.height - itemSize.height) / 2
+        cv.contentInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
     }
 
-    // MARK: - Layout Invalidation
+    // MARK: - Invalidation
 
-    /// 스크롤할 때마다 레이아웃을 다시 계산해서 scale/alpha를 갱신한다.
+    /// 스크롤할 때마다 transform/alpha를 재계산해야 하므로 항상 true.
     override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
         return true
     }
 
-    // MARK: - Attributes 계산
+    // MARK: - Attributes 계산 (핵심)
 
     override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
-        guard let superAttributes = super.layoutAttributesForElements(in: rect),
-              let collectionView = collectionView else {
+        guard let superAttributes = super.layoutAttributesForElements(in: rect) else {
             return nil
         }
-
-        // 원본을 변경하면 내부 캐시와 충돌할 수 있으므로 복사본 사용
-        let attributes = superAttributes.compactMap { $0.copy() as? UICollectionViewLayoutAttributes }
-
-        let visibleCenterX = collectionView.contentOffset.x + collectionView.bounds.width / 2
-
-        for attr in attributes {
-            let distance = abs(attr.center.x - visibleCenterX)
-            // 셀의 중심이 화면 중앙에서 얼마나 떨어져 있는지를 0~1 비율로 환산
-            let normalizedDistance = min(distance / collectionView.bounds.width, 1.0)
-            let scale = 1.0 - (1.0 - sideItemScale) * normalizedDistance
-            let alpha = 1.0 - (1.0 - sideItemAlpha) * normalizedDistance
-
-            attr.transform = CGAffineTransform(scaleX: scale, y: scale)
-            attr.alpha = alpha
-            // 가운데 셀이 위에 오도록 zIndex 설정
-            attr.zIndex = Int((1.0 - normalizedDistance) * 1000)
+        // ✅ 반드시 copy() — 원본 캐시를 오염시키면 깜빡임 발생
+        return superAttributes.compactMap { original in
+            guard let attr = original.copy() as? UICollectionViewLayoutAttributes else { return nil }
+            applyTransform(to: attr)
+            return attr
         }
-
-        return attributes
     }
 
-    // MARK: - 스냅(Snap) 구현
+    /// ✅ 개별 아이템 요청에도 transform을 적용해야 깜빡임이 없다.
+    /// 이 메서드를 빠뜨리면 insertItems/deleteItems/scrollToItem 시
+    /// transform이 없는 원본 attributes가 한 프레임 노출된다.
+    override func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
+        guard let original = super.layoutAttributesForItem(at: indexPath),
+              let attr = original.copy() as? UICollectionViewLayoutAttributes else {
+            return nil
+        }
+        applyTransform(to: attr)
+        return attr
+    }
 
-    /// 손을 떼면 가장 가까운 셀의 중심이 화면 중앙으로 스냅된다.
+    /// 공통 transform/alpha/zIndex 계산
+    private func applyTransform(to attr: UICollectionViewLayoutAttributes) {
+        guard let cv = collectionView else { return }
+
+        let visibleCenterY = cv.contentOffset.y + cv.bounds.height / 2
+        let signedDistance = attr.center.y - visibleCenterY
+        let absDistance = abs(signedDistance)
+        let normalizedDistance = min(absDistance / cv.bounds.height, 1.0)
+
+        // 스케일: center → centerItemScale, 가장자리 → sideItemScale
+        let scale = centerItemScale - (centerItemScale - sideItemScale) * normalizedDistance
+        // 알파
+        let alpha = 1.0 - (1.0 - sideItemAlpha) * normalizedDistance
+        // 3D 기울기 (위쪽 셀 앞으로, 아래쪽 셀 뒤로)
+        let tiltAngle = signedDistance / cv.bounds.height * maxTiltAngle
+        let clampedTilt = max(-maxTiltAngle, min(maxTiltAngle, tiltAngle))
+
+        var t = CATransform3DIdentity
+        t.m34 = -1.0 / 500
+        t = CATransform3DRotate(t, clampedTilt, 1, 0, 0)
+        t = CATransform3DScale(t, scale, scale, 1)
+
+        attr.transform3D = t
+        attr.alpha = alpha
+        // 가운데 셀이 위에 그려지도록
+        attr.zIndex = Int((1.0 - normalizedDistance) * 1000)
+    }
+
+    // MARK: - 스냅
+
     override func targetContentOffset(
         forProposedContentOffset proposedContentOffset: CGPoint,
         withScrollingVelocity velocity: CGPoint
@@ -107,14 +132,13 @@ final class CarouselFlowLayout: UICollectionViewFlowLayout {
                                              withScrollingVelocity: velocity)
         }
 
-        let targetCenterX = proposedContentOffset.x + cv.bounds.width / 2
+        let targetCenterY = proposedContentOffset.y + cv.bounds.height / 2
 
-        // proposedContentOffset 주변 넉넉한 범위의 셀을 탐색
         let searchRect = CGRect(
-            x: proposedContentOffset.x - cv.bounds.width,
-            y: 0,
-            width: cv.bounds.width * 3,
-            height: cv.bounds.height
+            x: 0,
+            y: proposedContentOffset.y - cv.bounds.height,
+            width: cv.bounds.width,
+            height: cv.bounds.height * 3
         )
 
         guard let attributes = super.layoutAttributesForElements(in: searchRect) else {
@@ -122,25 +146,23 @@ final class CarouselFlowLayout: UICollectionViewFlowLayout {
                                              withScrollingVelocity: velocity)
         }
 
-        // 화면 중앙에 가장 가까운 셀 찾기
-        var closestAttribute: UICollectionViewLayoutAttributes?
-        var closestDistance = CGFloat.greatestFiniteMagnitude
+        var closestAttr: UICollectionViewLayoutAttributes?
+        var closestDist = CGFloat.greatestFiniteMagnitude
 
         for attr in attributes {
-            let distance = attr.center.x - targetCenterX
-            if abs(distance) < abs(closestDistance) {
-                closestDistance = distance
-                closestAttribute = attr
+            let dist = attr.center.y - targetCenterY
+            if abs(dist) < abs(closestDist) {
+                closestDist = dist
+                closestAttr = attr
             }
         }
 
-        guard let snapped = closestAttribute else {
+        guard let snapped = closestAttr else {
             return super.targetContentOffset(forProposedContentOffset: proposedContentOffset,
                                              withScrollingVelocity: velocity)
         }
 
-        // 스냅 대상 셀의 중심이 화면 중앙에 오도록 오프셋 계산
-        let offsetX = snapped.center.x - cv.bounds.width / 2
-        return CGPoint(x: offsetX, y: proposedContentOffset.y)
+        return CGPoint(x: proposedContentOffset.x,
+                       y: snapped.center.y - cv.bounds.height / 2)
     }
 }

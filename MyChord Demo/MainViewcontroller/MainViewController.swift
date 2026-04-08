@@ -14,6 +14,7 @@ class MainViewController: UIViewController {
     @IBOutlet weak var searchButton: UIButton!
     @IBOutlet weak var textViewContainerView: UIView!
     @IBOutlet weak var textViewInnerContainerView: UIView!
+    @IBOutlet weak var headerBlurView: UIVisualEffectView!
     
     struct VideoItemViewModel {
         let searchItem: YouTubeSearchItem
@@ -32,6 +33,7 @@ class MainViewController: UIViewController {
     private var shortHasMore = true
     private var mediumHasMore = true
     private let useDummyData = true
+    private let searchAreaHeight: CGFloat = 60
     private var dummyItems: [DummyYouTubeData.DummyVideoItem] = []
     private var dummyIndex = 0
 
@@ -47,16 +49,34 @@ class MainViewController: UIViewController {
             }
         }
     }
-    
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+
+        if tableView.contentInset.top != searchAreaHeight {
+            tableView.contentInset.top = searchAreaHeight
+            tableView.scrollIndicatorInsets.top = searchAreaHeight
+        }
+    }
+
     private func setViews() {
         tableView.dataSource = self
         tableView.delegate = self
         tableView.contentInset = .zero
         tableView.scrollIndicatorInsets = .zero
         updateLoadingFooter()
-        
+
+        searchTextField.delegate = self
+        searchTextField.returnKeyType = .search
+
         textViewContainerView.layer.cornerRadius = 12
         textViewInnerContainerView.layer.cornerRadius = 10
+
+        headerBlurView.layer.shadowColor = UIColor.black.cgColor
+        headerBlurView.layer.shadowOpacity = 0.2
+        headerBlurView.layer.shadowOffset = CGSize(width: 0, height: 4)
+        headerBlurView.layer.shadowRadius = 8
+        headerBlurView.layer.masksToBounds = false
     }
 
     // MARK: - Actions
@@ -65,7 +85,7 @@ class MainViewController: UIViewController {
         performSearch()
     }
 
-    private func performSearch() {
+    func performSearch() {
         let rawQuery = searchTextField.text
         let query = (rawQuery?.isEmpty == false) ? rawQuery! : (useDummyData ? DummyYouTubeData.defaultQuery : nil)
         guard let query, !query.isEmpty else { return }

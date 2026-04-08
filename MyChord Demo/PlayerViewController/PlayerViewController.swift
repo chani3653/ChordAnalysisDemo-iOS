@@ -47,10 +47,8 @@ class PlayerViewController: UIViewController {
     private var repeatEndSeconds: Double?
     var chordTimeline: [ChordTimelineEntry] = []
     var currentChordIndex: Int?
-    let chordCellTopPadding: CGFloat = 0
-    let chordCellBottomPadding: CGFloat = 0
-    let chordCellSideInset: CGFloat = 20
-    let chordCellLineSpacing: CGFloat = 8
+    let chordCellSideInset: CGFloat = 40
+    let chordCellHeight: CGFloat = 100
     private var carouselLayout: CarouselFlowLayout?
 
     private enum RepeatState {
@@ -191,30 +189,40 @@ class PlayerViewController: UIViewController {
         chordCollectionView.dataSource = self
         chordCollectionView.delegate = self
         chordCollectionView.decelerationRate = .fast
-        chordCollectionView.showsHorizontalScrollIndicator = false
+        chordCollectionView.showsVerticalScrollIndicator = false
     }
 
     private func updateChordLayout() {
-        let height = chordCollectionView.bounds.height
-        guard height > 0 else { return }
+        let cvWidth = chordCollectionView.bounds.width
+        let cvHeight = chordCollectionView.bounds.height
+        guard cvWidth > 0, cvHeight > 0 else { return }
 
-        let itemSizeValue = max(0, height - (chordCellTopPadding + chordCellBottomPadding))
+        let itemWidth = max(0, cvWidth - chordCellSideInset * 2)
+        let itemHeight = chordCellHeight
+        let lineSpacing: CGFloat = -10
 
         if carouselLayout == nil {
+            // ✅ 최초 1회만 레이아웃 생성 및 reloadData
             let layout = CarouselFlowLayout()
+            layout.centerItemScale = 1.15
             layout.sideItemScale = 0.8
             layout.sideItemAlpha = 0.6
-            layout.spacing = chordCellLineSpacing
-            layout.itemSize = CGSize(width: itemSizeValue, height: itemSizeValue)
+            layout.spacing = lineSpacing
+            layout.itemSize = CGSize(width: itemWidth, height: itemHeight)
             chordCollectionView.setCollectionViewLayout(layout, animated: false)
             carouselLayout = layout
+            layout.updateContentInset()
+            chordCollectionView.reloadData()
         } else if let layout = carouselLayout {
-            layout.itemSize = CGSize(width: itemSizeValue, height: itemSizeValue)
-            layout.invalidateLayout()
+            // ✅ 이후에는 invalidateLayout만 — reloadData 금지 (깜빡임 원인)
+            let newSize = CGSize(width: itemWidth, height: itemHeight)
+            if layout.itemSize != newSize || layout.spacing != lineSpacing {
+                layout.spacing = lineSpacing
+                layout.itemSize = newSize
+                layout.updateContentInset()
+                layout.invalidateLayout()
+            }
         }
-
-        carouselLayout?.updateContentInset()
-        chordCollectionView.reloadData()
     }
 
     private func loadDemoChordTimelineIfNeeded() {
@@ -235,7 +243,7 @@ class PlayerViewController: UIViewController {
         guard !chordTimeline.isEmpty else { return }
         let targetIndex = max(0, min(index, chordTimeline.count - 1))
         let indexPath = IndexPath(item: targetIndex, section: 0)
-        chordCollectionView.scrollToItem(at: indexPath, at: .centeredHorizontally, animated: false)
+        chordCollectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: false)
     }
 
     private func updatePlayPauseButton() {
@@ -420,7 +428,7 @@ class PlayerViewController: UIViewController {
 
         let indexPath = IndexPath(item: index, section: 0)
         DispatchQueue.main.async { [weak self] in
-            self?.chordCollectionView.scrollToItem(at: indexPath, at: .centeredHorizontally, animated: true)
+            self?.chordCollectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
         }
     }
 

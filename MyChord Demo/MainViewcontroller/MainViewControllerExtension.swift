@@ -70,3 +70,13 @@ extension MainViewController: UITableViewDelegate {
         present(viewController, animated: true)
     }
 }
+
+// MARK: - UITextFieldDelegate
+
+extension MainViewController: UITextFieldDelegate {
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        performSearch()
+        return true
+    }
+}
