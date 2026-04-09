@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="24506" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="BYZ-38-t0r">
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="24765" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="BYZ-38-t0r">
     <device id="retina6_12" orientation="portrait" appearance="light"/>
     <dependencies>
         <deployment identifier="iOS"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="24504"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="24743"/>
         <capability name="Safe area layout guides" minToolsVersion="9.0"/>
         <capability name="System colors in document resources" minToolsVersion="11.0"/>
         <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
@@ -55,7 +55,7 @@
                                                     <rect key="frame" x="91.333333333333343" y="6" width="289.66666666666663" height="46"/>
                                                     <subviews>
                                                         <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="title" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="Qo8-vo-cWg">
-                                                            <rect key="frame" x="0.0" y="2" width="289.66666666666669" height="24"/>
+                                                            <rect key="frame" x="0.0" y="2" width="257.66666666666669" height="24"/>
                                                             <constraints>
                                                                 <constraint firstAttribute="height" constant="24" id="Q1a-Y8-aCb"/>
                                                             </constraints>
@@ -92,6 +92,14 @@
                                                                 <constraint firstAttribute="height" constant="11" id="zm8-Bn-aLA"/>
                                                             </constraints>
                                                         </view>
+                                                        <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="checkmark.icloud.fill" catalog="system" translatesAutoresizingMaskIntoConstraints="NO" id="oR6-lJ-SYq">
+                                                            <rect key="frame" x="265.66666666666669" y="3.3333333333333321" width="24" height="20.333333333333332"/>
+                                                            <color key="tintColor" white="0.33333333333333331" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                                                            <constraints>
+                                                                <constraint firstAttribute="height" constant="24" id="C1Z-RW-cCV"/>
+                                                                <constraint firstAttribute="width" constant="24" id="CXo-Wk-ubD"/>
+                                                            </constraints>
+                                                        </imageView>
                                                     </subviews>
                                                     <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
                                                     <constraints>
@@ -99,12 +107,14 @@
                                                         <constraint firstItem="OwG-9k-0bl" firstAttribute="centerY" secondItem="o2E-rQ-3mh" secondAttribute="centerY" id="92t-et-LbZ"/>
                                                         <constraint firstItem="OwG-9k-0bl" firstAttribute="leading" secondItem="o2E-rQ-3mh" secondAttribute="trailing" constant="3" id="Eim-BQ-ooX"/>
                                                         <constraint firstAttribute="trailing" secondItem="sX9-N0-Bdi" secondAttribute="trailing" id="HbR-h7-Wva"/>
-                                                        <constraint firstAttribute="trailing" secondItem="Qo8-vo-cWg" secondAttribute="trailing" id="Nnx-nf-rfw"/>
                                                         <constraint firstItem="Ko6-1N-A9E" firstAttribute="top" secondItem="Qo8-vo-cWg" secondAttribute="bottom" constant="4" id="Qn6-zJ-lS1"/>
                                                         <constraint firstItem="o2E-rQ-3mh" firstAttribute="centerY" secondItem="Ko6-1N-A9E" secondAttribute="centerY" id="UYM-BX-2zg"/>
+                                                        <constraint firstItem="oR6-lJ-SYq" firstAttribute="leading" secondItem="Qo8-vo-cWg" secondAttribute="trailing" constant="8" id="VP9-e9-RIB"/>
                                                         <constraint firstAttribute="bottom" secondItem="Ko6-1N-A9E" secondAttribute="bottom" constant="2" id="Wgu-jd-2fd"/>
+                                                        <constraint firstItem="oR6-lJ-SYq" firstAttribute="centerY" secondItem="Qo8-vo-cWg" secondAttribute="centerY" id="Whh-B3-RaF"/>
                                                         <constraint firstItem="Ko6-1N-A9E" firstAttribute="leading" secondItem="fW8-yZ-IbY" secondAttribute="leading" id="Y8y-80-uT5"/>
                                                         <constraint firstItem="sX9-N0-Bdi" firstAttribute="centerY" secondItem="o2E-rQ-3mh" secondAttribute="centerY" id="aok-jA-5Uz"/>
+                                                        <constraint firstAttribute="trailing" secondItem="oR6-lJ-SYq" secondAttribute="trailing" id="cyg-Ig-ypH"/>
                                                         <constraint firstItem="Qo8-vo-cWg" firstAttribute="leading" secondItem="fW8-yZ-IbY" secondAttribute="leading" id="q6a-ie-dhO"/>
                                                         <constraint firstItem="sX9-N0-Bdi" firstAttribute="leading" secondItem="OwG-9k-0bl" secondAttribute="trailing" constant="4" id="ysh-IY-CAS"/>
                                                     </constraints>
@@ -124,6 +134,7 @@
                                             </constraints>
                                         </tableViewCellContentView>
                                         <connections>
+                                            <outlet property="CloudImg" destination="CXo-Wk-ubD" id="gQ7-JR-hpt"/>
                                             <outlet property="artistLabel" destination="Ko6-1N-A9E" id="cel-out-003"/>
                                             <outlet property="dateLabel" destination="o2E-rQ-3mh" id="cel-out-004"/>
                                             <outlet property="playtimeLabel" destination="sX9-N0-Bdi" id="cel-out-005"/>
@@ -265,15 +276,16 @@
         </scene>
     </scenes>
     <resources>
+        <image name="checkmark.icloud.fill" catalog="system" width="128" height="90"/>
         <image name="magnifyingglass" catalog="system" width="128" height="117"/>
         <systemColor name="systemBackgroundColor">
             <color white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
         </systemColor>
         <systemColor name="systemGray3Color">
-            <color red="0.7803921568627451" green="0.7803921568627451" blue="0.80000000000000004" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+            <color red="0.78039215689999997" green="0.78039215689999997" blue="0.80000000000000004" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
         </systemColor>
         <systemColor name="systemGray6Color">
-            <color red="0.94901960784313721" green="0.94901960784313721" blue="0.96862745098039216" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+            <color red="0.94901960780000005" green="0.94901960780000005" blue="0.96862745100000003" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
         </systemColor>
     </resources>
 </document>

@@ -10,6 +10,7 @@ import Foundation
 struct ChordTimelineEntry {
     let timeMs: Int
     let chord: String
+    let confidence: Double?
 }
 
 enum ChordTimelineDemo {
@@ -28,13 +29,13 @@ enum ChordTimelineDemo {
         var currentMs = 0
         while currentMs < durationMs && entries.count < maxEntries {
             let chord = chords.randomElement() ?? "Cmaj"
-            entries.append(ChordTimelineEntry(timeMs: currentMs, chord: chord))
+            entries.append(ChordTimelineEntry(timeMs: currentMs, chord: chord, confidence: nil))
             let delta = Int.random(in: 700...1500)
             currentMs += delta
         }
 
         if entries.isEmpty {
-            entries.append(ChordTimelineEntry(timeMs: 0, chord: "Cmaj"))
+            entries.append(ChordTimelineEntry(timeMs: 0, chord: "Cmaj", confidence: nil))
         }
 
         return entries

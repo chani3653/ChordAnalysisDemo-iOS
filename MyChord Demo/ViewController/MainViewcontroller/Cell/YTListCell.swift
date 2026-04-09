@@ -15,15 +15,22 @@ class YTListCell: UITableViewCell {
     @IBOutlet weak var artistLabel: UILabel!
     @IBOutlet weak var dateLabel: UILabel!
     @IBOutlet weak var playtimeLabel: UILabel!
+    @IBOutlet weak var CloudImg: NSLayoutConstraint!
+    
+    private let statusLabel = UILabel()
+    private var cloudImgDefaultConstant: CGFloat = 0
 
     override func awakeFromNib() {
         super.awakeFromNib()
+        cloudImgDefaultConstant = CloudImg.constant
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
         thumbnailImageView.kf.cancelDownloadTask()
         thumbnailImageView.image = nil
+        statusLabel.text = nil
+        CloudImg.constant = 0
     }
 
     func configure(with item: MainViewController.VideoItemViewModel) {
@@ -31,6 +38,9 @@ class YTListCell: UITableViewCell {
         artistLabel.text = item.searchItem.snippet.channelTitle
         dateLabel.text = formatDate(item.searchItem.snippet.publishedAt)
         playtimeLabel.text = item.durationText
+        statusLabel.text = item.analysisState.statusText
+
+        CloudImg.constant = (item.analysisState == .available) ? cloudImgDefaultConstant : 0
 
         if let urlString = item.searchItem.snippet.thumbnails?.high?.url,
            let url = URL(string: urlString) {

@@ -142,11 +142,16 @@ final class NetworkManager {
         let fallbackMessage = error.localizedDescription
         let detailMessage = extractDetailMessage(from: data, fallback: fallbackMessage)
         let code = response?.statusCode
-            ?? (error as? AFError)?.responseCode
-            ?? (error as? URLError)?.errorCode
+            ?? extractStatusCode(from: error)
+        let displayMessage: String
+        if let code {
+            displayMessage = "[\(code)] \(detailMessage)"
+        } else {
+            displayMessage = detailMessage
+        }
         logError(code: code, message: detailMessage)
-        broadcastError(code: code, message: detailMessage, underlyingError: error)
-        presentErrorAlert(message: detailMessage)
+        broadcastError(code: code, message: displayMessage, underlyingError: error)
+        presentErrorAlert(message: displayMessage)
     }
 
     private func extractDetailMessage(from data: Data?, fallback: String) -> String {
@@ -168,7 +173,7 @@ final class NetworkManager {
             }
         }
         if let text = String(data: data, encoding: .utf8), !text.isEmpty {
-            return text
+            return sanitizeHTML(text)
         }
         return fallback
     }
@@ -179,6 +184,34 @@ final class NetworkManager {
             return
         }
         print("Error : \"\(message)\"")
+    }
+
+    private func extractStatusCode(from error: Error) -> Int? {
+        if let afError = error as? AFError {
+            if case let .responseValidationFailed(reason) = afError,
+               case let .unacceptableStatusCode(code) = reason {
+                return code
+            }
+            return afError.responseCode
+        }
+        return (error as? URLError)?.errorCode
+    }
+
+    private func sanitizeHTML(_ text: String) -> String {
+        guard text.contains("<") else { return text }
+        if let data = text.data(using: .utf8),
+           let attributed = try? NSAttributedString(
+            data: data,
+            options: [
+                .documentType: NSAttributedString.DocumentType.html,
+                .characterEncoding: String.Encoding.utf8.rawValue
+            ],
+            documentAttributes: nil
+           ) {
+            let stripped = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return stripped.isEmpty ? text : stripped
+        }
+        return text
     }
 
     private func broadcastError(code: Int?, message: String, underlyingError: Error) {
@@ -193,13 +226,9 @@ final class NetworkManager {
     private func presentErrorAlert(message: String) {
         DispatchQueue.main.async {
             guard let topViewController = UIApplication.shared.topMostViewController() else { return }
-            let alert = UIAlertController(
-                title: "오류",
-                message: message,
-                preferredStyle: .alert
-            )
-            alert.addAction(UIAlertAction(title: "확인", style: .default))
-            topViewController.present(alert, animated: true)
+            let overlay = ErrorOverlayView()
+            overlay.update(message: message)
+            overlay.show(in: topViewController.view)
         }
     }
 }

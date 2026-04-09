@@ -34,6 +34,7 @@ class PlayerViewController: UIViewController {
     var titleText: String?
     var artistText: String?
     var thumbnailURLString: String?
+    var initialChordTimeline: [ChordTimelineEntry] = []
 
     private var youTubePlayer: YouTubePlayer?
     private var youTubePlayerHostingView: YouTubePlayerHostingView?
@@ -71,7 +72,11 @@ class PlayerViewController: UIViewController {
         updateRepeatUI(active: false, isStartActive: false, isEndActive: false)
 
         configureChordCollectionView()
-        loadDemoChordTimelineIfNeeded()
+        if !initialChordTimeline.isEmpty {
+            applyChordTimeline(initialChordTimeline)
+        } else {
+            loadDemoChordTimelineIfNeeded()
+        }
         setupYouTubePlayer()
         updateChordLayout()
     }
@@ -346,6 +351,7 @@ class PlayerViewController: UIViewController {
     }
 
     private func applyThumbnail() {
+        backgroundImageView.isHidden = SettingsStore.isBackgroundMotionEnabled
         backgroundImageView.contentMode = .scaleAspectFill
         backgroundImageView.clipsToBounds = true
         guard let urlString = thumbnailURLString, let url = URL(string: urlString) else { return }
@@ -377,7 +383,7 @@ class PlayerViewController: UIViewController {
             if totalTimeLabel.text?.isEmpty != false {
                 totalTimeLabel.text = formatTime(seconds: durationValue)
             }
-            if chordTimeline.isEmpty {
+            if chordTimeline.isEmpty && initialChordTimeline.isEmpty {
                 applyChordTimeline(ChordTimelineDemo.makeDemoTimeline(durationSeconds: durationValue))
             }
         }

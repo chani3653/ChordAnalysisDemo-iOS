@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="24506" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES">
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="24765" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES">
     <device id="retina6_1" orientation="portrait" appearance="light"/>
     <dependencies>
         <deployment identifier="iOS"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="24504"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="24743"/>
         <capability name="Image references" minToolsVersion="12.0"/>
         <capability name="Safe area layout guides" minToolsVersion="9.0"/>
         <capability name="System colors in document resources" minToolsVersion="11.0"/>
@@ -130,7 +130,7 @@
                                                 </constraints>
                                                 <color key="tintColor" white="0.0" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
                                                 <state key="normal" title="Button"/>
-                                                <buttonConfiguration key="configuration" style="plain" image="play.fill" catalog="system">
+                                                <buttonConfiguration key="configuration" style="plain" image="gear" catalog="system">
                                                     <preferredSymbolConfiguration key="preferredSymbolConfigurationForImage" configurationType="pointSize" pointSize="34" scale="default"/>
                                                 </buttonConfiguration>
                                                 <connections>
@@ -309,13 +309,6 @@
                                     <constraint firstAttribute="height" constant="1" id="va2-X5-sg4"/>
                                 </constraints>
                             </view>
-                            <view contentMode="scaleToFill" ambiguous="YES" translatesAutoresizingMaskIntoConstraints="NO" id="cLx-9d-7e8">
-                                <rect key="frame" x="0.0" y="387" width="414" height="1"/>
-                                <color key="backgroundColor" white="0.0" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
-                                <constraints>
-                                    <constraint firstAttribute="height" constant="1" id="pGq-wW-xAa"/>
-                                </constraints>
-                            </view>
                         </subviews>
                         <viewLayoutGuide key="safeArea" id="vDu-zF-Fre"/>
                         <color key="backgroundColor" systemColor="systemBackgroundColor"/>
@@ -330,10 +323,8 @@
                             <constraint firstItem="frY-28-pn7" firstAttribute="top" secondItem="hrQ-k7-igA" secondAttribute="bottom" id="IDr-B6-Rc5"/>
                             <constraint firstItem="vDu-zF-Fre" firstAttribute="trailing" secondItem="quj-tf-JYB" secondAttribute="trailing" id="IcP-hY-Nmf"/>
                             <constraint firstItem="frY-28-pn7" firstAttribute="top" secondItem="Xov-jM-Mp8" secondAttribute="bottom" id="ODL-F0-7J0"/>
-                            <constraint firstItem="cLx-9d-7e8" firstAttribute="leading" secondItem="vDu-zF-Fre" secondAttribute="leading" id="PHy-iH-aaZ"/>
                             <constraint firstItem="vDu-zF-Fre" firstAttribute="trailing" secondItem="Xov-jM-Mp8" secondAttribute="trailing" id="Upv-QW-V2x"/>
                             <constraint firstItem="vDu-zF-Fre" firstAttribute="trailing" secondItem="frY-28-pn7" secondAttribute="trailing" id="VN1-CX-5bw"/>
-                            <constraint firstItem="vDu-zF-Fre" firstAttribute="trailing" secondItem="cLx-9d-7e8" secondAttribute="trailing" id="VNp-LJ-ueE"/>
                             <constraint firstItem="hJW-uR-FpD" firstAttribute="top" secondItem="5EZ-qb-Rvc" secondAttribute="top" id="X0t-a1-7tI"/>
                             <constraint firstItem="frY-28-pn7" firstAttribute="top" secondItem="quj-tf-JYB" secondAttribute="bottom" id="XtN-IT-PhA"/>
                             <constraint firstItem="vDu-zF-Fre" firstAttribute="trailing" secondItem="hJW-uR-FpD" secondAttribute="trailing" id="agu-mi-KLc"/>
@@ -347,11 +338,6 @@
                             <constraint firstItem="DOJ-Zg-ggH" firstAttribute="top" secondItem="5EZ-qb-Rvc" secondAttribute="top" id="rdg-v3-yaI"/>
                             <constraint firstItem="hrQ-k7-igA" firstAttribute="top" secondItem="8PE-Js-ehk" secondAttribute="bottom" id="ysS-pV-cBM"/>
                         </constraints>
-                        <variation key="default">
-                            <mask key="subviews">
-                                <exclude reference="hJW-uR-FpD"/>
-                            </mask>
-                        </variation>
                     </view>
                     <connections>
                         <outlet property="artistLabel" destination="bUE-co-fxy" id="pv-out-artist"/>
@@ -383,7 +369,7 @@
         <image name="arrow.trianglehead.counterclockwise" catalog="system" width="119" height="128"/>
         <image name="backward.end.fill" catalog="system" width="128" height="97"/>
         <image name="chevron.left" catalog="system" width="97" height="128"/>
-        <image name="play.fill" catalog="system" width="120" height="128"/>
+        <image name="gear" catalog="system" width="128" height="122"/>
         <image name="repeat" catalog="system" width="128" height="98"/>
         <systemColor name="systemBackgroundColor">
             <color white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>

@@ -16,10 +16,29 @@ extension MainViewController: UITableViewDataSource {
     }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return videoItems.count
+        return videoItems.count + (isLoadingMore && hasMorePages ? 1 : 0)
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        // 마지막 행이 로딩 인디케이터 셀인 경우
+        if indexPath.row == videoItems.count {
+            let cell = tableView.dequeueReusableCell(withIdentifier: "LoadingIndicatorCell", for: indexPath)
+            cell.selectionStyle = .none
+            cell.backgroundColor = .clear
+            if cell.contentView.viewWithTag(999) == nil {
+                let indicator = UIActivityIndicatorView(style: .medium)
+                indicator.tag = 999
+                indicator.translatesAutoresizingMaskIntoConstraints = false
+                cell.contentView.addSubview(indicator)
+                NSLayoutConstraint.activate([
+                    indicator.centerXAnchor.constraint(equalTo: cell.contentView.centerXAnchor),
+                    indicator.centerYAnchor.constraint(equalTo: cell.contentView.centerYAnchor)
+                ])
+            }
+            (cell.contentView.viewWithTag(999) as? UIActivityIndicatorView)?.startAnimating()
+            return cell
+        }
+
         guard let cell = tableView.dequeueReusableCell(withIdentifier: "YTListCell", for: indexPath) as? YTListCell else {
             return UITableViewCell()
         }
@@ -33,6 +52,7 @@ extension MainViewController: UITableViewDataSource {
 extension MainViewController: UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        if indexPath.row == videoItems.count { return 56 }
         return UITableView.automaticDimension
     }
 
@@ -42,32 +62,16 @@ extension MainViewController: UITableViewDelegate {
         let frameHeight = scrollView.frame.size.height
 
         if contentHeight > 0, offsetY > contentHeight - frameHeight - 200 {
-            Task {
-                await loadMore()
-            }
+            startLoadMore()
         }
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        guard indexPath.section == 0 else { return }
+        guard indexPath.section == 0, indexPath.row < videoItems.count else { return }
         tableView.deselectRow(at: indexPath, animated: true)
 
-        let storyboard = UIStoryboard(name: "PlayerStoryboard", bundle: nil)
-        let viewController = storyboard.instantiateViewController(withIdentifier: "PlayerViewController")
-
-        if let playerViewController = viewController as? PlayerViewController {
-            let item = videoItems[indexPath.row]
-            playerViewController.videoId = item.videoId
-            playerViewController.durationText = item.durationText
-            playerViewController.titleText = item.searchItem.snippet.title
-            playerViewController.artistText = item.searchItem.snippet.channelTitle
-            playerViewController.thumbnailURLString = item.searchItem.snippet.thumbnails?.high?.url
-                ?? item.searchItem.snippet.thumbnails?.medium?.url
-                ?? item.searchItem.snippet.thumbnails?.default?.url
-        }
-
-        viewController.modalPresentationStyle = .fullScreen
-        present(viewController, animated: true)
+        let item = videoItems[indexPath.row]
+        startAnalysisFlow(for: item)
     }
 }
 
