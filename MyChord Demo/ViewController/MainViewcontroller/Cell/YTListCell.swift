@@ -16,7 +16,7 @@ class YTListCell: UITableViewCell {
     @IBOutlet weak var dateLabel: UILabel!
     @IBOutlet weak var playtimeLabel: UILabel!
     @IBOutlet weak var CloudImg: NSLayoutConstraint!
-    
+
     private let statusLabel = UILabel()
     private var cloudImgDefaultConstant: CGFloat = 0
 
@@ -48,9 +48,29 @@ class YTListCell: UITableViewCell {
         }
     }
 
+    func configureOffline(with song: RealmAnalyzedSong) {
+        titleLabel.text = song.title
+        artistLabel.text = song.artist
+        dateLabel.text = formatRelativeDate(song.lastViewedAt)
+        playtimeLabel.text = song.durationText
+        statusLabel.text = "분석됨"
+
+        CloudImg.constant = cloudImgDefaultConstant
+
+        if let url = URL(string: song.thumbnailURL) {
+            thumbnailImageView.kf.setImage(with: url)
+        }
+    }
+
     private func formatDate(_ dateString: String?) -> String {
         guard let dateString else { return "" }
         // "2022-08-05T14:00:07Z" -> "2022-08-05"
         return String(dateString.prefix(10))
+    }
+
+    private func formatRelativeDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
     }
 }

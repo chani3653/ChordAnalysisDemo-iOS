@@ -121,11 +121,17 @@ final class AnalysisLoadingOverlayView: UIView {
         updateProgress(state.progressValue)
 
         switch state {
+        case .pending, .checkingCache, .preparingCached, .finalizing:
+            progressView?.isHidden = true
+            percentLabel?.isHidden = true
         case .completed:
             delayHideOnCompletion = true
+            progressView?.isHidden = false
+            percentLabel?.isHidden = false
             updateProgress(100)
         default:
-            break
+            progressView?.isHidden = false
+            percentLabel?.isHidden = false
         }
     }
 

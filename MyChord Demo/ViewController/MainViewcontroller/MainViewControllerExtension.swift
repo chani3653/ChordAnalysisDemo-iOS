@@ -16,11 +16,28 @@ extension MainViewController: UITableViewDataSource {
     }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return videoItems.count + (isLoadingMore && hasMorePages ? 1 : 0)
+        if isShowingSearchResults {
+            return videoItems.count + (isLoadingMore && hasMorePages ? 1 : 0)
+        } else {
+            // Offline mode: header cell + cached songs
+            if offlineSongs.isEmpty {
+                return 0
+            }
+            return 1 + offlineSongs.count // 1 for header
+        }
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        // 마지막 행이 로딩 인디케이터 셀인 경우
+        if isShowingSearchResults {
+            return searchResultCell(for: indexPath)
+        } else {
+            return offlineCell(for: indexPath)
+        }
+    }
+
+    // MARK: - Search Result Cells
+
+    private func searchResultCell(for indexPath: IndexPath) -> UITableViewCell {
         if indexPath.row == videoItems.count {
             let cell = tableView.dequeueReusableCell(withIdentifier: "LoadingIndicatorCell", for: indexPath)
             cell.selectionStyle = .none
@@ -45,6 +62,27 @@ extension MainViewController: UITableViewDataSource {
         cell.configure(with: videoItems[indexPath.row])
         return cell
     }
+
+    // MARK: - Offline Cells
+
+    private func offlineCell(for indexPath: IndexPath) -> UITableViewCell {
+        // Row 0 = header label
+        if indexPath.row == 0 {
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: SectionHeaderLabelCell.reuseIdentifier, for: indexPath) as? SectionHeaderLabelCell else {
+                return UITableViewCell()
+            }
+            cell.configure(text: "이전곡 분석 목록 (오프라인 사용 가능)")
+            return cell
+        }
+
+        // Row 1+ = cached songs
+        guard let cell = tableView.dequeueReusableCell(withIdentifier: "YTListCell", for: indexPath) as? YTListCell else {
+            return UITableViewCell()
+        }
+        let song = offlineSongs[indexPath.row - 1]
+        cell.configureOffline(with: song)
+        return cell
+    }
 }
 
 // MARK: - UITableViewDelegate
@@ -52,11 +90,14 @@ extension MainViewController: UITableViewDataSource {
 extension MainViewController: UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        if indexPath.row == videoItems.count { return 56 }
+        if isShowingSearchResults {
+            if indexPath.row == videoItems.count { return 56 }
+        }
         return UITableView.automaticDimension
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard isShowingSearchResults else { return }
         let offsetY = scrollView.contentOffset.y
         let contentHeight = scrollView.contentSize.height
         let frameHeight = scrollView.frame.size.height
@@ -66,12 +107,45 @@ extension MainViewController: UITableViewDelegate {
         }
     }
 
+    func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
+        guard !isShowingSearchResults, indexPath.row >= 1 else { return false }
+        return true
+    }
+
+    func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        guard !isShowingSearchResults, indexPath.row >= 1 else { return nil }
+
+        let deleteAction = UIContextualAction(style: .destructive, title: "삭제") { [weak self] _, _, completion in
+            guard let self else { completion(false); return }
+            let songIndex = indexPath.row - 1
+            let song = self.offlineSongs[songIndex]
+            OfflineSongCacheManager.shared.deleteSong(videoId: song.videoId)
+            self.offlineSongs.remove(at: songIndex)
+
+            if self.offlineSongs.isEmpty {
+                tableView.reloadData()
+            } else {
+                tableView.deleteRows(at: [indexPath], with: .automatic)
+            }
+            completion(true)
+        }
+
+        return UISwipeActionsConfiguration(actions: [deleteAction])
+    }
+
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        guard indexPath.section == 0, indexPath.row < videoItems.count else { return }
         tableView.deselectRow(at: indexPath, animated: true)
 
-        let item = videoItems[indexPath.row]
-        startAnalysisFlow(for: item)
+        if isShowingSearchResults {
+            guard indexPath.row < videoItems.count else { return }
+            let item = videoItems[indexPath.row]
+            startAnalysisFlow(for: item)
+        } else {
+            // Offline list: row 0 is header, skip it
+            guard indexPath.row >= 1 else { return }
+            let song = offlineSongs[indexPath.row - 1]
+            startOfflinePlayback(for: song)
+        }
     }
 }
 
@@ -82,5 +156,16 @@ extension MainViewController: UITextFieldDelegate {
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         performSearch()
         return true
+    }
+
+    func textFieldShouldClear(_ textField: UITextField) -> Bool {
+        // 검색 취소 시 오프라인 목록으로 복귀
+        textField.text = ""
+        textField.resignFirstResponder()
+        isShowingSearchResults = false
+        videoItems = []
+        reloadOfflineSongs()
+        tableView.reloadData()
+        return false
     }
 }

@@ -7,6 +7,7 @@
 
 import UIKit
 import Alamofire
+import RealmSwift
 
 class MainViewController: UIViewController {
 
@@ -16,6 +17,11 @@ class MainViewController: UIViewController {
     @IBOutlet weak var textViewContainerView: UIView!
     @IBOutlet weak var textViewInnerContainerView: UIView!
     @IBOutlet weak var headerBlurView: UIVisualEffectView!
+
+    // MARK: - Offline cache list state
+
+    var isShowingSearchResults = false
+    var offlineSongs: [RealmAnalyzedSong] = []
 
     enum AnalysisAvailabilityState: Equatable {
         case unknown
@@ -76,15 +82,9 @@ class MainViewController: UIViewController {
     private var currentQuery: String?
     private var nextPageToken: String?
     private(set) var hasMorePages = true
-    private var shortNextPageToken: String?
-    private var mediumNextPageToken: String?
-    private var shortHasMore = true
-    private var mediumHasMore = true
     private var useDummyData: Bool { SettingsStore.isDummyDataEnabled }
     private let searchAreaHeight: CGFloat = 60
     private var lastDummySetting = SettingsStore.isDummyDataEnabled
-    private var dummyItems: [DummyYouTubeData.DummyVideoItem] = []
-    private var dummyIndex = 0
     private var checkedVideoIDs: Set<String> = []
     private lazy var analysisLoadingOverlay = AnalysisLoadingOverlayView()
     private lazy var errorOverlay = ErrorOverlayView()
@@ -98,14 +98,22 @@ class MainViewController: UIViewController {
         lastDummySetting = useDummyData
 
         if useDummyData {
+            isShowingSearchResults = true
             currentQuery = DummyYouTubeData.defaultQuery
             startLoadMore()
+        } else {
+            reloadOfflineSongs()
         }
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         applyDummySettingIfNeeded()
+
+        if !isShowingSearchResults {
+            reloadOfflineSongs()
+            tableView.reloadData()
+        }
     }
 
     override func viewDidLayoutSubviews() {
@@ -117,16 +125,25 @@ class MainViewController: UIViewController {
         }
     }
 
+    func reloadOfflineSongs() {
+        offlineSongs = OfflineSongCacheManager.shared.fetchRecentSongs()
+    }
+
     private func setViews() {
         tableView.dataSource = self
         tableView.delegate = self
         tableView.contentInset = .zero
         tableView.scrollIndicatorInsets = .zero
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "LoadingIndicatorCell")
+        tableView.register(SectionHeaderLabelCell.self, forCellReuseIdentifier: SectionHeaderLabelCell.reuseIdentifier)
         updateLoadingFooter()
 
         searchTextField.delegate = self
         searchTextField.returnKeyType = .search
+
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+        tapGesture.cancelsTouchesInView = false
+        view.addGestureRecognizer(tapGesture)
 
         textViewContainerView.layer.cornerRadius = 12
         textViewInnerContainerView.layer.cornerRadius = 10
@@ -144,27 +161,27 @@ class MainViewController: UIViewController {
         lastDummySetting = currentSetting
 
         resetSearchState()
-        tableView.reloadData()
 
         if currentSetting {
+            isShowingSearchResults = true
             currentQuery = DummyYouTubeData.defaultQuery
             startLoadMore()
+        } else {
+            reloadOfflineSongs()
         }
+
+        tableView.reloadData()
     }
 
     private func resetSearchState() {
         videoItems = []
-        shortNextPageToken = nil
-        mediumNextPageToken = nil
-        shortHasMore = true
-        mediumHasMore = true
+        nextPageToken = nil
         hasMorePages = true
-        dummyItems = []
-        dummyIndex = 0
         checkedVideoIDs.removeAll()
         currentQuery = nil
         hasSearched = false
         isLoadingMore = false
+        isShowingSearchResults = false
     }
 
     @MainActor
@@ -181,6 +198,10 @@ class MainViewController: UIViewController {
 
     // MARK: - Actions
 
+    @objc private func dismissKeyboard() {
+        view.endEditing(true)
+    }
+
     @IBAction func searchButtonTapped(_ sender: UIButton) {
         performSearch()
     }
@@ -192,6 +213,7 @@ class MainViewController: UIViewController {
         searchTextField.resignFirstResponder()
 
         resetSearchState()
+        isShowingSearchResults = true
         currentQuery = trimmedQuery
         Task { @MainActor in
             tableView.reloadData()
@@ -214,51 +236,14 @@ class MainViewController: UIViewController {
         }
 
         do {
-            // async let + Alamofire 조합은 task 취소 시 메모리 오염을 유발하므로
-            // withThrowingTaskGroup으로 short/medium 병렬 요청
-            let capturedShortToken = shortNextPageToken
-            let capturedMediumToken = mediumNextPageToken
+            let response = try await APIService.shared.searchYouTube(
+                query: query, pageToken: nextPageToken
+            )
 
-            var shortResponse: YouTubeSearchResponse?
-            var mediumResponse: YouTubeSearchResponse?
+            nextPageToken = response.nextPageToken
+            if response.nextPageToken == nil { hasMorePages = false }
 
-            try await withThrowingTaskGroup(of: (Bool, YouTubeSearchResponse).self) { group in
-                if shortHasMore {
-                    group.addTask {
-                        let result = try await APIService.shared.searchYouTube(
-                            query: query, videoDuration: "short", pageToken: capturedShortToken
-                        )
-                        return (true, result)
-                    }
-                }
-                if mediumHasMore {
-                    group.addTask {
-                        let result = try await APIService.shared.searchYouTube(
-                            query: query, videoDuration: "medium", pageToken: capturedMediumToken
-                        )
-                        return (false, result)
-                    }
-                }
-                for try await (isShort, response) in group {
-                    if isShort { shortResponse = response }
-                    else { mediumResponse = response }
-                }
-            }
-
-            if let shortResponse {
-                shortNextPageToken = shortResponse.nextPageToken
-                if shortResponse.nextPageToken == nil { shortHasMore = false }
-            }
-            if let mediumResponse {
-                mediumNextPageToken = mediumResponse.nextPageToken
-                if mediumResponse.nextPageToken == nil { mediumHasMore = false }
-            }
-
-            var allSearchItems: [YouTubeSearchItem] = []
-            if let shortResponse { allSearchItems.append(contentsOf: shortResponse.items) }
-            if let mediumResponse { allSearchItems.append(contentsOf: mediumResponse.items) }
-
-            let searchItems = allSearchItems.filter { $0.id.videoIdValue != nil }
+            let searchItems = response.items.filter { $0.id.videoIdValue != nil }
             let videoIds = searchItems.compactMap { $0.id.videoIdValue }
 
             if !videoIds.isEmpty {
@@ -271,11 +256,11 @@ class MainViewController: UIViewController {
                     durationTextById[id] = formatDuration(item.contentDetails?.duration)
                 }
 
-                // Filter: 1min (60s) <= duration <= 7min (420s)
+                // Filter: 1min (60s) <= duration < 7min (420s)
                 let newItems = searchItems.compactMap { item -> VideoItemViewModel? in
                     let id = item.id.videoIdValue ?? ""
                     guard let seconds = durationSecondsById[id],
-                          seconds >= 60, seconds <= 420 else { return nil }
+                          seconds >= 60, seconds < 420 else { return nil }
                     let durationText = durationTextById[id] ?? ""
                     return VideoItemViewModel(
                         searchItem: item,
@@ -290,7 +275,6 @@ class MainViewController: UIViewController {
                 }
             }
 
-            hasMorePages = shortHasMore || mediumHasMore
             hasSearched = true
         } catch {
             print("[loadMore] ❌ 오류 발생")
@@ -307,8 +291,6 @@ class MainViewController: UIViewController {
             } else if let urlError = error as? URLError {
                 print("[loadMore] URLError 코드: \(urlError.code.rawValue) - \(urlError.localizedDescription)")
             }
-            shortHasMore = false
-            mediumHasMore = false
             hasMorePages = false
             await MainActor.run { showErrorAlert(error) }
         }
@@ -321,37 +303,27 @@ class MainViewController: UIViewController {
 
     private func loadMoreDummy(query: String) async {
         isLoadingMore = true
-//        updateLoadingFooter()
         await MainActor.run {
             tableView.reloadData()
         }
 
-        if dummyItems.isEmpty {
-            dummyItems = DummyYouTubeData.makeItems(query: query, count: DummyYouTubeData.totalCount)
-            dummyIndex = 0
+        let dummyItems = DummyYouTubeData.makeItems(query: query, count: DummyYouTubeData.demoVideos.count)
+        let newItems = dummyItems.map {
+            VideoItemViewModel(
+                searchItem: $0.searchItem,
+                videoId: $0.videoId,
+                durationText: $0.durationText,
+                analysisState: .checking
+            )
+        }
+        videoItems.append(contentsOf: newItems)
+        Task {
+            await checkAnalysisAvailability(for: newItems.map { $0.videoId })
         }
 
-        let nextIndex = min(dummyIndex + DummyYouTubeData.pageSize, dummyItems.count)
-        if dummyIndex < nextIndex {
-            let newItems = dummyItems[dummyIndex..<nextIndex].map {
-                VideoItemViewModel(
-                    searchItem: $0.searchItem,
-                    videoId: $0.videoId,
-                    durationText: $0.durationText,
-                    analysisState: .checking
-                )
-            }
-            videoItems.append(contentsOf: newItems)
-            Task {
-                await checkAnalysisAvailability(for: newItems.map { $0.videoId })
-            }
-            dummyIndex = nextIndex
-        }
-
-        hasMorePages = dummyIndex < dummyItems.count
+        hasMorePages = false
         hasSearched = true
         isLoadingMore = false
-//        updateLoadingFooter()
         await MainActor.run {
             tableView.reloadData()
         }
@@ -437,15 +409,38 @@ class MainViewController: UIViewController {
                     }
                 }
                 let timeline = result.results.toChordTimelineEntries()
+
+                // Realm 저장
+                let thumbnailURL = item.searchItem.snippet.thumbnails?.high?.url
+                    ?? item.searchItem.snippet.thumbnails?.medium?.url
+                    ?? item.searchItem.snippet.thumbnails?.default?.url
+                    ?? ""
+                OfflineSongCacheManager.shared.saveAnalyzedSong(
+                    videoId: item.videoId,
+                    title: item.searchItem.snippet.title ?? "",
+                    artist: item.searchItem.snippet.channelTitle ?? "",
+                    thumbnailURL: thumbnailURL,
+                    durationText: item.durationText,
+                    results: result.results
+                )
+
                 await MainActor.run {
                     self.analysisLoadingOverlay.update(state: .completed)
                     self.analysisLoadingOverlay.hide()
                     self.presentPlayer(for: item, timeline: timeline)
                 }
             } catch {
+                // 오프라인 fallback: 서버 실패 시 로컬 캐시 확인
+                let cached = OfflineSongCacheManager.shared.fetchSong(videoId: item.videoId)
                 await MainActor.run {
                     self.analysisLoadingOverlay.hide()
-                    self.showErrorAlert(error)
+                    if let cached {
+                        print("[OfflineCache] 오프라인 캐시로 불러왔습니다: \(item.videoId)")
+                        OfflineSongCacheManager.shared.touchSong(videoId: item.videoId)
+                        self.presentPlayerFromCache(cached)
+                    } else {
+                        self.showOfflineUnavailableAlert()
+                    }
                 }
             }
 
@@ -454,6 +449,46 @@ class MainViewController: UIViewController {
                 self.activeAnalysisVideoID = nil
             }
         }
+    }
+
+    // MARK: - Offline song tap (no server needed)
+
+    func startOfflinePlayback(for song: RealmAnalyzedSong) {
+        OfflineSongCacheManager.shared.touchSong(videoId: song.videoId)
+        presentPlayerFromCache(song)
+    }
+
+    @MainActor
+    func presentPlayerFromCache(_ song: RealmAnalyzedSong) {
+        let timeline = song.toChordTimelineEntries()
+        let storyboard = UIStoryboard(name: "PlayerStoryboard", bundle: nil)
+        let viewController = storyboard.instantiateViewController(withIdentifier: "PlayerViewController")
+
+        if let playerVC = viewController as? PlayerViewController {
+            playerVC.videoId = song.videoId
+            playerVC.durationText = song.durationText
+            playerVC.titleText = song.title
+            playerVC.artistText = song.artist
+            playerVC.thumbnailURLString = song.thumbnailURL
+            playerVC.initialChordTimeline = timeline
+        }
+
+        if let navigationController {
+            navigationController.pushViewController(viewController, animated: true)
+        } else {
+            viewController.modalPresentationStyle = .fullScreen
+            present(viewController, animated: true)
+        }
+    }
+
+    private func showOfflineUnavailableAlert() {
+        let alert = UIAlertController(
+            title: "연결 실패",
+            message: "서버에 연결할 수 없으며, 이 곡의 오프라인 데이터도 없습니다.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "확인", style: .default))
+        present(alert, animated: true)
     }
 
     func resolveAnalysisResult(
