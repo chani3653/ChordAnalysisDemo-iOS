@@ -33,7 +33,7 @@ class YTListCell: UITableViewCell {
         CloudImg.constant = 0
     }
 
-    func configure(with item: MainViewController.VideoItemViewModel) {
+    func configure(with item: VideoItemViewModel) {
         titleLabel.text = item.searchItem.snippet.title
         artistLabel.text = item.searchItem.snippet.channelTitle
         dateLabel.text = formatDate(item.searchItem.snippet.publishedAt)
@@ -64,7 +64,6 @@ class YTListCell: UITableViewCell {
 
     private func formatDate(_ dateString: String?) -> String {
         guard let dateString else { return "" }
-        // "2022-08-05T14:00:07Z" -> "2022-08-05"
         return String(dateString.prefix(10))
     }
 

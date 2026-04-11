@@ -7,7 +7,6 @@
 
 import Foundation
 import Alamofire
-import UIKit
 
 final class NetworkManager {
 
@@ -138,6 +137,8 @@ final class NetworkManager {
         throw error
     }
 
+    // MARK: - Error Handling (no UI dependency)
+
     private func handleError(_ error: Error, response: HTTPURLResponse?, data: Data?) {
         let fallbackMessage = error.localizedDescription
         let detailMessage = extractDetailMessage(from: data, fallback: fallbackMessage)
@@ -151,7 +152,6 @@ final class NetworkManager {
         }
         logError(code: code, message: detailMessage)
         broadcastError(code: code, message: displayMessage, underlyingError: error)
-        presentErrorAlert(message: displayMessage)
     }
 
     private func extractDetailMessage(from data: Data?, fallback: String) -> String {
@@ -199,19 +199,12 @@ final class NetworkManager {
 
     private func sanitizeHTML(_ text: String) -> String {
         guard text.contains("<") else { return text }
-        if let data = text.data(using: .utf8),
-           let attributed = try? NSAttributedString(
-            data: data,
-            options: [
-                .documentType: NSAttributedString.DocumentType.html,
-                .characterEncoding: String.Encoding.utf8.rawValue
-            ],
-            documentAttributes: nil
-           ) {
-            let stripped = attributed.string.trimmingCharacters(in: .whitespacesAndNewlines)
-            return stripped.isEmpty ? text : stripped
-        }
-        return text
+        let stripped = text.replacingOccurrences(
+            of: "<[^>]+>",
+            with: "",
+            options: .regularExpression
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        return stripped.isEmpty ? text : stripped
     }
 
     private func broadcastError(code: Int?, message: String, underlyingError: Error) {
@@ -222,45 +215,4 @@ final class NetworkManager {
             userInfo: ["payload": payload]
         )
     }
-
-    private func presentErrorAlert(message: String) {
-        DispatchQueue.main.async {
-            guard let topViewController = UIApplication.shared.topMostViewController() else { return }
-            let overlay = ErrorOverlayView()
-            overlay.update(message: message)
-            overlay.show(in: topViewController.view)
-        }
-    }
 }
-
-private extension UIApplication {
-    func topMostViewController() -> UIViewController? {
-        guard let windowScene = connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .first(where: { $0.activationState == .foregroundActive }) else {
-            return nil
-        }
-        guard let root = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
-            return nil
-        }
-        return root.topMostViewController()
-    }
-}
-
-private extension UIViewController {
-    func topMostViewController() -> UIViewController {
-        if let presented = presentedViewController {
-            return presented.topMostViewController()
-        }
-        if let navigationController = self as? UINavigationController,
-           let visible = navigationController.visibleViewController {
-            return visible.topMostViewController()
-        }
-        if let tabBarController = self as? UITabBarController,
-           let selected = tabBarController.selectedViewController {
-            return selected.topMostViewController()
-        }
-        return self
-    }
-}
-

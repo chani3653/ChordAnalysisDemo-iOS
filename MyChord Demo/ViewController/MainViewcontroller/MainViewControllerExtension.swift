@@ -17,13 +17,12 @@ extension MainViewController: UITableViewDataSource {
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         if isShowingSearchResults {
-            return videoItems.count + (isLoadingMore && hasMorePages ? 1 : 0)
+            return searchHandler.videoItems.count + (searchHandler.isLoadingMore && searchHandler.hasMorePages ? 1 : 0)
         } else {
-            // Offline mode: header cell + cached songs
             if offlineSongs.isEmpty {
                 return 0
             }
-            return 1 + offlineSongs.count // 1 for header
+            return 1 + offlineSongs.count
         }
     }
 
@@ -38,7 +37,7 @@ extension MainViewController: UITableViewDataSource {
     // MARK: - Search Result Cells
 
     private func searchResultCell(for indexPath: IndexPath) -> UITableViewCell {
-        if indexPath.row == videoItems.count {
+        if indexPath.row == searchHandler.videoItems.count {
             let cell = tableView.dequeueReusableCell(withIdentifier: "LoadingIndicatorCell", for: indexPath)
             cell.selectionStyle = .none
             cell.backgroundColor = .clear
@@ -59,14 +58,13 @@ extension MainViewController: UITableViewDataSource {
         guard let cell = tableView.dequeueReusableCell(withIdentifier: "YTListCell", for: indexPath) as? YTListCell else {
             return UITableViewCell()
         }
-        cell.configure(with: videoItems[indexPath.row])
+        cell.configure(with: searchHandler.videoItems[indexPath.row])
         return cell
     }
 
     // MARK: - Offline Cells
 
     private func offlineCell(for indexPath: IndexPath) -> UITableViewCell {
-        // Row 0 = header label
         if indexPath.row == 0 {
             guard let cell = tableView.dequeueReusableCell(withIdentifier: SectionHeaderLabelCell.reuseIdentifier, for: indexPath) as? SectionHeaderLabelCell else {
                 return UITableViewCell()
@@ -75,7 +73,6 @@ extension MainViewController: UITableViewDataSource {
             return cell
         }
 
-        // Row 1+ = cached songs
         guard let cell = tableView.dequeueReusableCell(withIdentifier: "YTListCell", for: indexPath) as? YTListCell else {
             return UITableViewCell()
         }
@@ -91,7 +88,7 @@ extension MainViewController: UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         if isShowingSearchResults {
-            if indexPath.row == videoItems.count { return 56 }
+            if indexPath.row == searchHandler.videoItems.count { return 56 }
         }
         return UITableView.automaticDimension
     }
@@ -137,11 +134,10 @@ extension MainViewController: UITableViewDelegate {
         tableView.deselectRow(at: indexPath, animated: true)
 
         if isShowingSearchResults {
-            guard indexPath.row < videoItems.count else { return }
-            let item = videoItems[indexPath.row]
+            guard indexPath.row < searchHandler.videoItems.count else { return }
+            let item = searchHandler.videoItems[indexPath.row]
             startAnalysisFlow(for: item)
         } else {
-            // Offline list: row 0 is header, skip it
             guard indexPath.row >= 1 else { return }
             let song = offlineSongs[indexPath.row - 1]
             startOfflinePlayback(for: song)
@@ -159,11 +155,10 @@ extension MainViewController: UITextFieldDelegate {
     }
 
     func textFieldShouldClear(_ textField: UITextField) -> Bool {
-        // 검색 취소 시 오프라인 목록으로 복귀
         textField.text = ""
         textField.resignFirstResponder()
         isShowingSearchResults = false
-        videoItems = []
+        searchHandler.reset()
         reloadOfflineSongs()
         tableView.reloadData()
         return false

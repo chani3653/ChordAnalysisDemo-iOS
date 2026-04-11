@@ -6,7 +6,6 @@
 //
 
 import UIKit
-import Alamofire
 import RealmSwift
 
 class MainViewController: UIViewController {
@@ -18,88 +17,32 @@ class MainViewController: UIViewController {
     @IBOutlet weak var textViewInnerContainerView: UIView!
     @IBOutlet weak var headerBlurView: UIVisualEffectView!
 
-    // MARK: - Offline cache list state
+    // MARK: - Dependencies
+
+    let searchHandler = MainSearchHandler()
+    private let analysisFlowController = MainAnalysisFlowController()
+    private lazy var analysisLoadingOverlay = AnalysisLoadingOverlayView()
+    private lazy var errorOverlay = ErrorOverlayView()
+
+    // MARK: - State
 
     var isShowingSearchResults = false
     var offlineSongs: [RealmAnalyzedSong] = []
-
-    enum AnalysisAvailabilityState: Equatable {
-        case unknown
-        case checking
-        case available
-        case unavailable
-        case analyzing(progress: Int?, jobID: Int?)
-
-        var statusText: String {
-            switch self {
-            case .unknown:
-                return "확인 전"
-            case .checking:
-                return "확인중"
-            case .available:
-                return "분석됨"
-            case .unavailable:
-                return "미분석"
-            case .analyzing(let progress, _):
-                if let progress {
-                    return "분석중 \(progress)%"
-                }
-                return "분석중"
-            }
-        }
-    }
-
-    struct VideoItemViewModel {
-        let searchItem: YouTubeSearchItem
-        let videoId: String
-        let durationText: String
-        var analysisState: AnalysisAvailabilityState
-    }
-
-    private enum AnalysisFlowError: LocalizedError {
-        case missingJob
-        case failedStatus(message: String)
-        case timeout
-
-        var errorDescription: String? {
-            switch self {
-            case .missingJob:
-                return "분석 요청에 필요한 작업 정보가 없습니다."
-            case .failedStatus(let message):
-                return message
-            case .timeout:
-                return "분석이 일정 시간 내에 완료되지 않았습니다."
-            }
-        }
-    }
-
-    typealias LoadingStateHandler = @Sendable (AnalysisLoadingOverlayView.AnalysisLoadingDisplayState) async -> Void
-
-    var videoItems: [VideoItemViewModel] = []
-    private var hasSearched = false
-    private(set) var isLoadingMore = false
     private var loadMoreTask: Task<Void, Never>?
-    private var currentQuery: String?
-    private var nextPageToken: String?
-    private(set) var hasMorePages = true
-    private var useDummyData: Bool { SettingsStore.isDummyDataEnabled }
-    private let searchAreaHeight: CGFloat = 60
     private var lastDummySetting = SettingsStore.isDummyDataEnabled
-    private var checkedVideoIDs: Set<String> = []
-    private lazy var analysisLoadingOverlay = AnalysisLoadingOverlayView()
-    private lazy var errorOverlay = ErrorOverlayView()
-    private var analysisTask: Task<Void, Never>?
-    private var activeAnalysisVideoID: String?
+    private let searchAreaHeight: CGFloat = 60
+    private var useDummyData: Bool { SettingsStore.isDummyDataEnabled }
+
+    // MARK: - Lifecycle
 
     override func viewDidLoad() {
         super.viewDidLoad()
-
         setViews()
         lastDummySetting = useDummyData
 
         if useDummyData {
             isShowingSearchResults = true
-            currentQuery = DummyYouTubeData.defaultQuery
+            searchHandler.setQuery(DummyYouTubeData.defaultQuery)
             startLoadMore()
         } else {
             reloadOfflineSongs()
@@ -118,16 +61,13 @@ class MainViewController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-
         if tableView.contentInset.top != searchAreaHeight {
             tableView.contentInset.top = searchAreaHeight
             tableView.scrollIndicatorInsets.top = searchAreaHeight
         }
     }
 
-    func reloadOfflineSongs() {
-        offlineSongs = OfflineSongCacheManager.shared.fetchRecentSongs()
-    }
+    // MARK: - View Setup
 
     private func setViews() {
         tableView.dataSource = self
@@ -136,7 +76,6 @@ class MainViewController: UIViewController {
         tableView.scrollIndicatorInsets = .zero
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "LoadingIndicatorCell")
         tableView.register(SectionHeaderLabelCell.self, forCellReuseIdentifier: SectionHeaderLabelCell.reuseIdentifier)
-        updateLoadingFooter()
 
         searchTextField.delegate = self
         searchTextField.returnKeyType = .search
@@ -155,47 +94,6 @@ class MainViewController: UIViewController {
         headerBlurView.layer.masksToBounds = false
     }
 
-    private func applyDummySettingIfNeeded() {
-        let currentSetting = useDummyData
-        guard currentSetting != lastDummySetting else { return }
-        lastDummySetting = currentSetting
-
-        resetSearchState()
-
-        if currentSetting {
-            isShowingSearchResults = true
-            currentQuery = DummyYouTubeData.defaultQuery
-            startLoadMore()
-        } else {
-            reloadOfflineSongs()
-        }
-
-        tableView.reloadData()
-    }
-
-    private func resetSearchState() {
-        videoItems = []
-        nextPageToken = nil
-        hasMorePages = true
-        checkedVideoIDs.removeAll()
-        currentQuery = nil
-        hasSearched = false
-        isLoadingMore = false
-        isShowingSearchResults = false
-    }
-
-    @MainActor
-    func startLoadMore() {
-        guard loadMoreTask == nil else { return }
-        loadMoreTask = Task { [weak self] in
-            guard let self else { return }
-            await self.loadMore()
-            await MainActor.run {
-                self.loadMoreTask = nil
-            }
-        }
-    }
-
     // MARK: - Actions
 
     @objc private func dismissKeyboard() {
@@ -212,250 +110,98 @@ class MainViewController: UIViewController {
         guard !trimmedQuery.isEmpty else { return }
         searchTextField.resignFirstResponder()
 
-        resetSearchState()
+        searchHandler.reset()
         isShowingSearchResults = true
-        currentQuery = trimmedQuery
+        searchHandler.setQuery(trimmedQuery)
         Task { @MainActor in
             tableView.reloadData()
         }
-
         startLoadMore()
     }
 
-    func loadMore() async {
-        guard let query = currentQuery, !isLoadingMore, hasMorePages else { return }
-
-        if useDummyData {
-            await loadMoreDummy(query: query)
-            return
-        }
-
-        isLoadingMore = true
-        await MainActor.run {
-            tableView.reloadData()
-        }
-
-        do {
-            let response = try await APIService.shared.searchYouTube(
-                query: query, pageToken: nextPageToken
-            )
-
-            nextPageToken = response.nextPageToken
-            if response.nextPageToken == nil { hasMorePages = false }
-
-            let searchItems = response.items.filter { $0.id.videoIdValue != nil }
-            let videoIds = searchItems.compactMap { $0.id.videoIdValue }
-
-            if !videoIds.isEmpty {
-                let detailsResponse = try await APIService.shared.fetchVideoDetails(videoIds: videoIds)
-                var durationSecondsById: [String: Int] = [:]
-                var durationTextById: [String: String] = [:]
-                for item in detailsResponse.items {
-                    guard let id = item.id else { continue }
-                    durationSecondsById[id] = parseDurationToSeconds(item.contentDetails?.duration)
-                    durationTextById[id] = formatDuration(item.contentDetails?.duration)
-                }
-
-                // Filter: 1min (60s) <= duration < 7min (420s)
-                let newItems = searchItems.compactMap { item -> VideoItemViewModel? in
-                    let id = item.id.videoIdValue ?? ""
-                    guard let seconds = durationSecondsById[id],
-                          seconds >= 60, seconds < 420 else { return nil }
-                    let durationText = durationTextById[id] ?? ""
-                    return VideoItemViewModel(
-                        searchItem: item,
-                        videoId: id,
-                        durationText: durationText,
-                        analysisState: .checking
-                    )
-                }
-                videoItems.append(contentsOf: newItems)
-                Task {
-                    await checkAnalysisAvailability(for: newItems.map { $0.videoId })
-                }
-            }
-
-            hasSearched = true
-        } catch {
-            print("[loadMore] ❌ 오류 발생")
-            print("[loadMore] 설명: \(error.localizedDescription)")
-            print("[loadMore] 전체 오류: \(error)")
-            if let afError = error as? AFError {
-                print("[loadMore] AFError: \(afError)")
-                if let underlying = afError.underlyingError {
-                    print("[loadMore] 내부 오류: \(underlying)")
-                }
-                if let urlError = afError.underlyingError as? URLError {
-                    print("[loadMore] URLError 코드: \(urlError.code.rawValue) - \(urlError.localizedDescription)")
-                }
-            } else if let urlError = error as? URLError {
-                print("[loadMore] URLError 코드: \(urlError.code.rawValue) - \(urlError.localizedDescription)")
-            }
-            hasMorePages = false
-            await MainActor.run { showErrorAlert(error) }
-        }
-
-        isLoadingMore = false
-        await MainActor.run {
-            tableView.reloadData()
-        }
-    }
-
-    private func loadMoreDummy(query: String) async {
-        isLoadingMore = true
-        await MainActor.run {
-            tableView.reloadData()
-        }
-
-        let dummyItems = DummyYouTubeData.makeItems(query: query, count: DummyYouTubeData.demoVideos.count)
-        let newItems = dummyItems.map {
-            VideoItemViewModel(
-                searchItem: $0.searchItem,
-                videoId: $0.videoId,
-                durationText: $0.durationText,
-                analysisState: .checking
-            )
-        }
-        videoItems.append(contentsOf: newItems)
-        Task {
-            await checkAnalysisAvailability(for: newItems.map { $0.videoId })
-        }
-
-        hasMorePages = false
-        hasSearched = true
-        isLoadingMore = false
-        await MainActor.run {
-            tableView.reloadData()
-        }
-    }
+    // MARK: - Search / Load More
 
     @MainActor
-    private func updateAnalysisState(for videoID: String, to state: AnalysisAvailabilityState) {
-        guard let index = videoItems.firstIndex(where: { $0.videoId == videoID }) else { return }
-        videoItems[index].analysisState = state
-        let currentRowCount = tableView.numberOfRows(inSection: 0)
-        if index >= currentRowCount || currentRowCount != videoItems.count {
-            tableView.reloadData()
-            return
-        }
-        tableView.reloadRows(at: [IndexPath(row: index, section: 0)], with: .none)
-    }
-
-    private func checkAnalysisAvailability(for videoIDs: [String]) async {
-        let uniqueIDs = Array(Set(videoIDs)).filter { !checkedVideoIDs.contains($0) }
-        guard !uniqueIDs.isEmpty else { return }
-        uniqueIDs.forEach { checkedVideoIDs.insert($0) }
-
-        await MainActor.run {
-            uniqueIDs.forEach { updateAnalysisState(for: $0, to: .checking) }
-        }
-
-        do {
-            let results = try await withTimeout(seconds: 5) {
-                try await MusicAnalysisAPIService.shared.checkAnalyzed(videoIDs: uniqueIDs)
+    func startLoadMore() {
+        guard loadMoreTask == nil else { return }
+        loadMoreTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.searchHandler.loadMore()
+            } catch {
+                await MainActor.run { self.showErrorOverlay(error) }
             }
             await MainActor.run {
-                for result in results {
-                    let state: AnalysisAvailabilityState = result.analyzed ? .available : .unavailable
-                    updateAnalysisState(for: result.videoId, to: state)
-                }
-            }
-        } catch {
-            await MainActor.run {
-                uniqueIDs.forEach { updateAnalysisState(for: $0, to: .unknown) }
+                self.tableView.reloadData()
+                self.loadMoreTask = nil
             }
         }
     }
 
-    private func withTimeout<T>(
-        seconds: Double,
-        operation: @escaping () async throws -> T
-    ) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask {
-                try await operation()
-            }
-            group.addTask {
-                let duration = UInt64(seconds * 1_000_000_000)
-                try await Task.sleep(nanoseconds: duration)
-                throw AnalysisFlowError.timeout
-            }
-            let result = try await group.next()!
-            group.cancelAll()
-            return result
-        }
-    }
-
-    private func makeYouTubeURL(for videoID: String) -> String {
-        return "https://www.youtube.com/watch?v=\(videoID)"
-    }
+    // MARK: - Analysis Flow
 
     func startAnalysisFlow(for item: VideoItemViewModel) {
-        guard analysisTask == nil else { return }
-
-        analysisTask = Task { [weak self] in
-            guard let self else { return }
-
-            await MainActor.run {
-                self.activeAnalysisVideoID = item.videoId
-                self.analysisLoadingOverlay.show(in: self.view)
-                self.analysisLoadingOverlay.update(state: .checkingCache)
-            }
-
-            do {
-                let result = try await self.resolveAnalysisResult(for: item) { state in
-                    await MainActor.run {
-                        self.analysisLoadingOverlay.update(state: state)
-                    }
+        analysisFlowController.start(
+            for: item,
+            stateUpdater: { [weak self] videoID, state in
+                self?.updateAnalysisStateInTable(for: videoID, to: state)
+            },
+            onLoadingState: { [weak self] state in
+                guard let self else { return }
+                if self.analysisLoadingOverlay.superview == nil {
+                    self.analysisLoadingOverlay.show(in: self.view)
                 }
-                let timeline = result.results.toChordTimelineEntries()
-
-                // Realm 저장
-                let thumbnailURL = item.searchItem.snippet.thumbnails?.high?.url
-                    ?? item.searchItem.snippet.thumbnails?.medium?.url
-                    ?? item.searchItem.snippet.thumbnails?.default?.url
-                    ?? ""
-                OfflineSongCacheManager.shared.saveAnalyzedSong(
-                    videoId: item.videoId,
-                    title: item.searchItem.snippet.title ?? "",
-                    artist: item.searchItem.snippet.channelTitle ?? "",
-                    thumbnailURL: thumbnailURL,
-                    durationText: item.durationText,
-                    results: result.results
-                )
-
-                await MainActor.run {
-                    self.analysisLoadingOverlay.update(state: .completed)
-                    self.analysisLoadingOverlay.hide()
-                    self.presentPlayer(for: item, timeline: timeline)
-                }
-            } catch {
-                // 오프라인 fallback: 서버 실패 시 로컬 캐시 확인
-                let cached = OfflineSongCacheManager.shared.fetchSong(videoId: item.videoId)
-                await MainActor.run {
-                    self.analysisLoadingOverlay.hide()
-                    if let cached {
-                        print("[OfflineCache] 오프라인 캐시로 불러왔습니다: \(item.videoId)")
-                        OfflineSongCacheManager.shared.touchSong(videoId: item.videoId)
-                        self.presentPlayerFromCache(cached)
-                    } else {
-                        self.showOfflineUnavailableAlert()
-                    }
-                }
+                self.analysisLoadingOverlay.update(state: state)
+            },
+            onSuccess: { [weak self] item, flowResult in
+                guard let self else { return }
+                self.analysisLoadingOverlay.hide()
+                self.saveToOfflineCache(item: item, result: flowResult.analysisResult)
+                self.presentPlayer(for: item, timeline: flowResult.timeline)
+            },
+            onError: { [weak self] item, error in
+                guard let self else { return }
+                self.analysisLoadingOverlay.hide()
+                self.handleAnalysisError(item: item, error: error)
             }
-
-            await MainActor.run {
-                self.analysisTask = nil
-                self.activeAnalysisVideoID = nil
-            }
-        }
+        )
     }
 
-    // MARK: - Offline song tap (no server needed)
+    // MARK: - Offline Playback
+
+    func reloadOfflineSongs() {
+        offlineSongs = OfflineSongCacheManager.shared.fetchRecentSongs()
+    }
 
     func startOfflinePlayback(for song: RealmAnalyzedSong) {
         OfflineSongCacheManager.shared.touchSong(videoId: song.videoId)
         presentPlayerFromCache(song)
+    }
+
+    // MARK: - Navigation
+
+    @MainActor
+    func presentPlayer(for item: VideoItemViewModel, timeline: [ChordTimelineEntry]) {
+        let storyboard = UIStoryboard(name: "PlayerStoryboard", bundle: nil)
+        let viewController = storyboard.instantiateViewController(withIdentifier: "PlayerViewController")
+
+        if let playerVC = viewController as? PlayerViewController {
+            playerVC.videoId = item.videoId
+            playerVC.durationText = item.durationText
+            playerVC.titleText = item.searchItem.snippet.title
+            playerVC.artistText = item.searchItem.snippet.channelTitle
+            playerVC.thumbnailURLString = item.searchItem.snippet.thumbnails?.high?.url
+                ?? item.searchItem.snippet.thumbnails?.medium?.url
+                ?? item.searchItem.snippet.thumbnails?.default?.url
+            playerVC.initialChordTimeline = timeline
+        }
+
+        if let navigationController {
+            navigationController.pushViewController(viewController, animated: true)
+        } else {
+            viewController.modalPresentationStyle = .fullScreen
+            present(viewController, animated: true)
+        }
     }
 
     @MainActor
@@ -481,6 +227,45 @@ class MainViewController: UIViewController {
         }
     }
 
+    // MARK: - Private Helpers
+
+    @MainActor
+    private func updateAnalysisStateInTable(for videoID: String, to state: AnalysisAvailabilityState) {
+        guard let index = searchHandler.updateAnalysisState(for: videoID, to: state) else { return }
+        let currentRowCount = tableView.numberOfRows(inSection: 0)
+        if index >= currentRowCount || currentRowCount != searchHandler.videoItems.count {
+            tableView.reloadData()
+            return
+        }
+        tableView.reloadRows(at: [IndexPath(row: index, section: 0)], with: .none)
+    }
+
+    private func saveToOfflineCache(item: VideoItemViewModel, result: AnalysisResultResponse) {
+        let thumbnailURL = item.searchItem.snippet.thumbnails?.high?.url
+            ?? item.searchItem.snippet.thumbnails?.medium?.url
+            ?? item.searchItem.snippet.thumbnails?.default?.url
+            ?? ""
+        OfflineSongCacheManager.shared.saveAnalyzedSong(
+            videoId: item.videoId,
+            title: item.searchItem.snippet.title ?? "",
+            artist: item.searchItem.snippet.channelTitle ?? "",
+            thumbnailURL: thumbnailURL,
+            durationText: item.durationText,
+            results: result.results
+        )
+    }
+
+    private func handleAnalysisError(item: VideoItemViewModel, error: Error) {
+        let cached = OfflineSongCacheManager.shared.fetchSong(videoId: item.videoId)
+        if let cached {
+            print("[OfflineCache] 오프라인 캐시로 불러왔습니다: \(item.videoId)")
+            OfflineSongCacheManager.shared.touchSong(videoId: item.videoId)
+            presentPlayerFromCache(cached)
+        } else {
+            showOfflineUnavailableAlert()
+        }
+    }
+
     private func showOfflineUnavailableAlert() {
         let alert = UIAlertController(
             title: "연결 실패",
@@ -491,221 +276,27 @@ class MainViewController: UIViewController {
         present(alert, animated: true)
     }
 
-    func resolveAnalysisResult(
-        for item: VideoItemViewModel,
-        statusHandler: @escaping LoadingStateHandler
-    ) async throws -> AnalysisResultResponse {
-        switch item.analysisState {
-        case .available:
-            await statusHandler(.preparingCached)
-            return try await MusicAnalysisAPIService.shared.fetchResult(videoID: item.videoId)
-        case .analyzing(_, let jobID):
-            await statusHandler(.analyzing(progress: nil))
-            if let jobID {
-                return try await pollAnalysisStatus(
-                    jobID: jobID,
-                    videoID: item.videoId,
-                    statusHandler: statusHandler
-                )
-            }
-            fallthrough
-        case .unknown, .checking, .unavailable:
-            await statusHandler(.checkingCache)
-            let response = try await MusicAnalysisAPIService.shared.analyze(youtubeURL: makeYouTubeURL(for: item.videoId))
-            return try await handleAnalyzeResponse(
-                response,
-                videoID: item.videoId,
-                statusHandler: statusHandler
-            )
-        }
-    }
-
-    private func handleAnalyzeResponse(
-        _ response: AnalyzeResponse,
-        videoID: String,
-        statusHandler: @escaping LoadingStateHandler
-    ) async throws -> AnalysisResultResponse {
-        if let results = response.results, !results.isEmpty {
-            await MainActor.run {
-                updateAnalysisState(for: videoID, to: .available)
-            }
-            await statusHandler(.finalizing)
-            return AnalysisResultResponse(videoId: response.videoId, video: response.video, results: results)
-        }
-
-        if response.cached == true {
-            await statusHandler(.preparingCached)
-            return try await MusicAnalysisAPIService.shared.fetchResult(videoID: response.videoId)
-        }
-
-        if let jobID = response.jobId {
-            await MainActor.run {
-                updateAnalysisState(for: videoID, to: .analyzing(progress: response.progress, jobID: jobID))
-            }
-            if let status = response.status {
-                await statusHandler(displayState(for: status, progress: response.progress))
-            } else {
-                await statusHandler(.pending)
-            }
-            return try await pollAnalysisStatus(
-                jobID: jobID,
-                videoID: response.videoId,
-                statusHandler: statusHandler
-            )
-        }
-
-        throw AnalysisFlowError.missingJob
-    }
-
-    func pollAnalysisStatus(
-        jobID: Int,
-        videoID: String,
-        statusHandler: @escaping LoadingStateHandler
-    ) async throws -> AnalysisResultResponse {
-        let startTime = Date()
-        let timeout: TimeInterval = 300
-        let interval: UInt64 = 1_000_000_000
-
-        while true {
-            let status = try await MusicAnalysisAPIService.shared.fetchStatus(jobID: jobID)
-            await statusHandler(displayState(for: status.status, progress: status.progress))
-
-            if status.status == "complete" {
-                await MainActor.run {
-                    updateAnalysisState(for: videoID, to: .available)
-                }
-                await statusHandler(.completed)
-                return try await MusicAnalysisAPIService.shared.fetchResult(videoID: videoID)
-            }
-
-            if status.status == "fail" {
-                let message = status.error?.message ?? "분석에 실패했습니다."
-                throw AnalysisFlowError.failedStatus(message: message)
-            }
-
-            await MainActor.run {
-                updateAnalysisState(for: videoID, to: .analyzing(progress: status.progress, jobID: jobID))
-            }
-
-            if Date().timeIntervalSince(startTime) > timeout {
-                throw AnalysisFlowError.timeout
-            }
-
-            try await Task.sleep(nanoseconds: interval)
-        }
-    }
-
-    @MainActor
-    func presentPlayer(for item: VideoItemViewModel, timeline: [ChordTimelineEntry]) {
-        let storyboard = UIStoryboard(name: "PlayerStoryboard", bundle: nil)
-        let viewController = storyboard.instantiateViewController(withIdentifier: "PlayerViewController")
-
-        if let playerViewController = viewController as? PlayerViewController {
-            playerViewController.videoId = item.videoId
-            playerViewController.durationText = item.durationText
-            playerViewController.titleText = item.searchItem.snippet.title
-            playerViewController.artistText = item.searchItem.snippet.channelTitle
-            playerViewController.thumbnailURLString = item.searchItem.snippet.thumbnails?.high?.url
-                ?? item.searchItem.snippet.thumbnails?.medium?.url
-                ?? item.searchItem.snippet.thumbnails?.default?.url
-            playerViewController.initialChordTimeline = timeline
-        }
-
-        if let navigationController {
-            navigationController.pushViewController(viewController, animated: true)
-        } else {
-            viewController.modalPresentationStyle = .fullScreen
-            present(viewController, animated: true)
-        }
-    }
-
-    @MainActor
-    func updateLoadingFooter() {
-        tableView.reloadData()
-    }
-
-    func showErrorAlert(_ error: Error) {
+    func showErrorOverlay(_ error: Error) {
         errorOverlay.update(message: error.localizedDescription)
         errorOverlay.show(in: view)
     }
 
-    private func displayState(for status: String, progress: Int?) -> AnalysisLoadingOverlayView.AnalysisLoadingDisplayState {
-        switch status {
-        case "pending":
-            return .pending
-        case "downloading":
-            return .downloading(progress: progress)
-        case "analyzing":
-            return .analyzing(progress: progress)
-        case "complete":
-            return .completed
-        default:
-            return .pending
-        }
-    }
+    private func applyDummySettingIfNeeded() {
+        let currentSetting = useDummyData
+        guard currentSetting != lastDummySetting else { return }
+        lastDummySetting = currentSetting
 
-    private func parseDurationToSeconds(_ duration: String?) -> Int {
-        guard let duration, !duration.isEmpty else { return 0 }
+        searchHandler.reset()
+        isShowingSearchResults = false
 
-        var hours = 0, minutes = 0, seconds = 0
-        var currentNumber = ""
-        var isTimeSection = false
-
-        for character in duration {
-            if character == "T" { isTimeSection = true; continue }
-            if character.isNumber { currentNumber.append(character); continue }
-            guard isTimeSection, !currentNumber.isEmpty else { continue }
-            let value = Int(currentNumber) ?? 0
-            switch character {
-            case "H": hours = value
-            case "M": minutes = value
-            case "S": seconds = value
-            default: break
-            }
-            currentNumber = ""
-        }
-        return hours * 3600 + minutes * 60 + seconds
-    }
-
-    private func formatDuration(_ duration: String?) -> String {
-        guard let duration, !duration.isEmpty else { return "" }
-
-        var hours = 0
-        var minutes = 0
-        var seconds = 0
-        var currentNumber = ""
-        var isTimeSection = false
-
-        for character in duration {
-            if character == "T" {
-                isTimeSection = true
-                continue
-            }
-
-            if character.isNumber {
-                currentNumber.append(character)
-                continue
-            }
-
-            guard isTimeSection, !currentNumber.isEmpty else { continue }
-
-            let value = Int(currentNumber) ?? 0
-            switch character {
-            case "H":
-                hours = value
-            case "M":
-                minutes = value
-            case "S":
-                seconds = value
-            default:
-                break
-            }
-            currentNumber = ""
+        if currentSetting {
+            isShowingSearchResults = true
+            searchHandler.setQuery(DummyYouTubeData.defaultQuery)
+            startLoadMore()
+        } else {
+            reloadOfflineSongs()
         }
 
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
-        }
-        return String(format: "%d:%02d", minutes, seconds)
+        tableView.reloadData()
     }
 }

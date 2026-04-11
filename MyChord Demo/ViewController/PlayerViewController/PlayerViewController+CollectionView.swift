@@ -12,15 +12,14 @@ import UIKit
 extension PlayerViewController: UICollectionViewDataSource {
 
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return chordTimeline.count
+        return timelineController.chordTimeline.count
     }
 
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: ChordCollectionViewCell.reuseIdentifier, for: indexPath) as? ChordCollectionViewCell else {
             return UICollectionViewCell()
         }
-        cell.configure(text: chordTimeline[indexPath.item].chord)
-        // ✅ 셀이 화면에 나타날 때 즉시 올바른 position을 적용 → 깜빡임 방지
+        cell.configure(text: timelineController.chordTimeline[indexPath.item].chord)
         let position = cellPosition(for: cell.frame, in: collectionView)
         cell.updatePosition(position)
         return cell

@@ -28,7 +28,9 @@ class PlayerViewController: UIViewController {
     @IBOutlet weak var repeatBLabel: UILabel!
     @IBOutlet weak var contorolPannelView: UIView!
     @IBOutlet weak var chordCollectionView: UICollectionView!
-    
+
+    // MARK: - Input Properties
+
     var videoId: String?
     var durationText: String?
     var titleText: String?
@@ -36,27 +38,17 @@ class PlayerViewController: UIViewController {
     var thumbnailURLString: String?
     var initialChordTimeline: [ChordTimelineEntry] = []
 
-    private var youTubePlayer: YouTubePlayer?
+    // MARK: - Dependencies
+
+    let playbackController = PlayerPlaybackController()
+    let timelineController = PlayerTimelineController()
+
     private var youTubePlayerHostingView: YouTubePlayerHostingView?
-    private var playbackTimer: Timer?
-    private var isSeeking = false
-    private var isPlaying = false
-    private var durationSeconds: Double?
-    private var lastPlaybackStateCheck: Date?
-    private var repeatState: RepeatState = .none
-    private var repeatStartSeconds: Double?
-    private var repeatEndSeconds: Double?
-    var chordTimeline: [ChordTimelineEntry] = []
-    var currentChordIndex: Int?
     let chordCellSideInset: CGFloat = 40
     let chordCellHeight: CGFloat = 100
     private var carouselLayout: CarouselFlowLayout?
 
-    private enum RepeatState {
-        case none
-        case startSet
-        case endSet
-    }
+    // MARK: - Lifecycle
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -72,18 +64,25 @@ class PlayerViewController: UIViewController {
         updateRepeatUI(active: false, isStartActive: false, isEndActive: false)
 
         configureChordCollectionView()
+        bindPlaybackController()
+
         if !initialChordTimeline.isEmpty {
-            applyChordTimeline(initialChordTimeline)
+            timelineController.applyTimeline(initialChordTimeline)
+            chordCollectionView.reloadData()
+            scrollToChordIndex(0)
         } else {
-            loadDemoChordTimelineIfNeeded()
+            timelineController.loadDemoTimelineIfEmpty(durationSeconds: 180)
+            chordCollectionView.reloadData()
+            scrollToChordIndex(0)
         }
+
         setupYouTubePlayer()
         updateChordLayout()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        stopPlaybackTimer()
+        playbackController.stopPlaybackTimer()
     }
 
     override func viewDidLayoutSubviews() {
@@ -103,73 +102,94 @@ class PlayerViewController: UIViewController {
         return .lightContent
     }
 
+    // MARK: - Actions
+
     @IBAction func backButtonTapped(_ sender: UIButton) {
         dismiss(animated: true)
     }
 
     @IBAction func playPauseTapped(_ sender: UIButton) {
-        Task {
-            guard let youTubePlayer else { return }
-            if isPlaying {
-                try? await youTubePlayer.pause()
-                isPlaying = false
-            } else {
-                try? await youTubePlayer.play()
-                isPlaying = true
-            }
-            updatePlayPauseButton()
-        }
+        playbackController.togglePlayPause()
     }
 
     @IBAction func backwardTapped(_ sender: UIButton) {
-        seekBy(secondsDelta: -10)
+        playbackController.seekBy(secondsDelta: -10)
     }
 
     @IBAction func forwardTapped(_ sender: UIButton) {
-        seekBy(secondsDelta: 10)
+        playbackController.seekBy(secondsDelta: 10)
     }
 
     @IBAction func sliderTouchDown(_ sender: UISlider) {
-        isSeeking = true
+        playbackController.setIsSeeking(true)
     }
 
     @IBAction func sliderValueChanged(_ sender: UISlider) {
-        nowTimeLabel.text = formatTime(seconds: Double(sender.value))
+        nowTimeLabel.text = PlayerTimelineController.formatTime(seconds: Double(sender.value))
     }
 
     @IBAction func sliderTouchUp(_ sender: UISlider) {
-        isSeeking = false
-        seekTo(seconds: Double(sender.value))
+        playbackController.setIsSeeking(false)
+        playbackController.seekTo(seconds: Double(sender.value))
     }
 
     @IBAction func repeatButtonTapped(_ sender: UIButton) {
         Task {
-            await handleRepeatButtonTap()
+            let (state, _, _) = await playbackController.handleRepeatButtonTap()
+            switch state {
+            case .none:
+                updateRepeatUI(active: false, isStartActive: false, isEndActive: false)
+            case .startSet:
+                updateRepeatUI(active: true, isStartActive: true, isEndActive: false)
+            case .endSet:
+                updateRepeatUI(active: true, isStartActive: true, isEndActive: true)
+            }
         }
     }
 
     @IBAction func seekToStartTapped(_ sender: UIButton) {
-        repeatState = .none
-        repeatStartSeconds = nil
-        repeatEndSeconds = nil
+        playbackController.resetRepeat()
         updateRepeatUI(active: false, isStartActive: false, isEndActive: false)
-
-        seekTo(seconds: 0)
+        playbackController.seekTo(seconds: 0)
         nowTimeLabel.text = "0:00"
         timeSlider.value = 0
     }
 
+    // MARK: - Binding
+
+    private func bindPlaybackController() {
+        playbackController.onPlaybackTimeUpdate = { [weak self] currentSeconds in
+            guard let self else { return }
+            self.nowTimeLabel.text = PlayerTimelineController.formatTime(seconds: currentSeconds)
+            self.timeSlider.value = Float(currentSeconds)
+            self.updateChordScroll(currentSeconds: currentSeconds)
+        }
+
+        playbackController.onPlayingStateChanged = { [weak self] _ in
+            self?.updatePlayPauseButton()
+        }
+
+        playbackController.onDurationResolved = { [weak self] durationValue in
+            guard let self else { return }
+            self.timeSlider.minimumValue = 0
+            self.timeSlider.maximumValue = Float(durationValue)
+            if self.totalTimeLabel.text?.isEmpty != false {
+                self.totalTimeLabel.text = PlayerTimelineController.formatTime(seconds: durationValue)
+            }
+            if self.timelineController.chordTimeline.isEmpty && self.initialChordTimeline.isEmpty {
+                self.timelineController.applyTimeline(ChordTimelineDemo.makeDemoTimeline(durationSeconds: durationValue))
+                self.chordCollectionView.reloadData()
+                self.scrollToChordIndex(0)
+            }
+        }
+    }
+
+    // MARK: - YouTube Player Setup
+
     private func setupYouTubePlayer() {
         guard let videoId, !videoId.isEmpty else { return }
 
-        let parameters = YouTubePlayer.Parameters(
-            autoPlay: false,
-            showControls: false,
-            showFullscreenButton: false,
-            showCaptions: false,
-            restrictRelatedVideosToSameChannel: true
-        )
-        let player = YouTubePlayer(source: .video(id: videoId), parameters: parameters)
+        let player = playbackController.setupPlayer(videoId: videoId)
         let hostingView = YouTubePlayerHostingView(player: player)
         playerContainerView.addSubview(hostingView)
         hostingView.translatesAutoresizingMaskIntoConstraints = false
@@ -179,16 +199,10 @@ class PlayerViewController: UIViewController {
             hostingView.topAnchor.constraint(equalTo: playerContainerView.topAnchor),
             hostingView.bottomAnchor.constraint(equalTo: playerContainerView.bottomAnchor)
         ])
-
-        youTubePlayer = player
         youTubePlayerHostingView = hostingView
-        isPlaying = false
-        updatePlayPauseButton()
-        startPlaybackTimer()
-        Task {
-            await updateDurationIfNeeded()
-        }
     }
+
+    // MARK: - Collection View
 
     private func configureChordCollectionView() {
         chordCollectionView.dataSource = self
@@ -207,7 +221,6 @@ class PlayerViewController: UIViewController {
         let lineSpacing: CGFloat = -10
 
         if carouselLayout == nil {
-            // ✅ 최초 1회만 레이아웃 생성 및 reloadData
             let layout = CarouselFlowLayout()
             layout.centerItemScale = 1.15
             layout.sideItemScale = 0.8
@@ -219,7 +232,6 @@ class PlayerViewController: UIViewController {
             layout.updateContentInset()
             chordCollectionView.reloadData()
         } else if let layout = carouselLayout {
-            // ✅ 이후에는 invalidateLayout만 — reloadData 금지 (깜빡임 원인)
             let newSize = CGSize(width: itemWidth, height: itemHeight)
             if layout.itemSize != newSize || layout.spacing != lineSpacing {
                 layout.spacing = lineSpacing
@@ -230,53 +242,27 @@ class PlayerViewController: UIViewController {
         }
     }
 
-    private func loadDemoChordTimelineIfNeeded() {
-        if chordTimeline.isEmpty {
-            let duration = durationSeconds ?? 180
-            applyChordTimeline(ChordTimelineDemo.makeDemoTimeline(durationSeconds: duration))
+    private func updateChordScroll(currentSeconds: Double) {
+        guard let index = timelineController.updateCurrentIndex(for: currentSeconds) else { return }
+        let indexPath = IndexPath(item: index, section: 0)
+        DispatchQueue.main.async { [weak self] in
+            self?.chordCollectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
         }
     }
 
-    func applyChordTimeline(_ timeline: [ChordTimelineEntry]) {
-        chordTimeline = timeline.sorted { $0.timeMs < $1.timeMs }
-        currentChordIndex = nil
-        chordCollectionView.reloadData()
-        scrollToChordIndexIfNeeded(0)
-    }
-
-    private func scrollToChordIndexIfNeeded(_ index: Int) {
-        guard !chordTimeline.isEmpty else { return }
-        let targetIndex = max(0, min(index, chordTimeline.count - 1))
+    func scrollToChordIndex(_ index: Int) {
+        guard !timelineController.chordTimeline.isEmpty else { return }
+        let targetIndex = max(0, min(index, timelineController.chordTimeline.count - 1))
         let indexPath = IndexPath(item: targetIndex, section: 0)
         chordCollectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: false)
     }
 
+    // MARK: - UI Helpers
+
     private func updatePlayPauseButton() {
-        let imageName = isPlaying ? "pause.fill" : "play.fill"
-        let image = UIImage(systemName: imageName)
-        playPauseButton.setImage(image, for: .normal)
-        updateChordCollectionViewScrolling()
-    }
-
-    private func updateChordCollectionViewScrolling() {
-        chordCollectionView.isScrollEnabled = !isPlaying
-    }
-
-    private func updatePlaybackStateIfNeeded() async {
-        let now = Date()
-        if let last = lastPlaybackStateCheck, now.timeIntervalSince(last) < 0.8 {
-            return
-        }
-        lastPlaybackStateCheck = now
-
-        guard let youTubePlayer else { return }
-        if let info = try? await youTubePlayer.getInformation() {
-            let playing = info.playerState == .playing
-            if playing != isPlaying {
-                isPlaying = playing
-                updatePlayPauseButton()
-            }
-        }
+        let imageName = playbackController.isPlaying ? "pause.fill" : "play.fill"
+        playPauseButton.setImage(UIImage(systemName: imageName), for: .normal)
+        chordCollectionView.isScrollEnabled = !playbackController.isPlaying
     }
 
     private func updateBackButtonColor() {
@@ -294,10 +280,6 @@ class PlayerViewController: UIViewController {
         contorolPannelView.layer.shadowPath = UIBezierPath(rect: expandedBounds).cgPath
     }
 
-
-
-
-
     private func updateRepeatUI(active: Bool, isStartActive: Bool, isEndActive: Bool) {
         let activeColor = UIColor.systemGreen
         let inactiveColor = UIColor.black
@@ -308,48 +290,6 @@ class PlayerViewController: UIViewController {
         repeatBLabel.textColor = isEndActive ? activeColor : inactiveColor
     }
 
-    private func handleRepeatButtonTap() async {
-        guard let youTubePlayer else { return }
-        let currentValue = (try? await youTubePlayer.getCurrentTime())?.converted(to: .seconds).value ?? 0
-
-        switch repeatState {
-        case .none:
-            repeatStartSeconds = currentValue
-            repeatEndSeconds = nil
-            repeatState = .startSet
-            updateRepeatUI(active: true, isStartActive: true, isEndActive: false)
-        case .startSet:
-            repeatEndSeconds = max(currentValue, repeatStartSeconds ?? 0)
-            repeatState = .endSet
-            updateRepeatUI(active: true, isStartActive: true, isEndActive: true)
-            if let start = repeatStartSeconds {
-                let startTime = Measurement(value: start, unit: UnitDuration.seconds)
-                try? await youTubePlayer.seek(to: startTime, allowSeekAhead: true)
-                if !isPlaying {
-                    try? await youTubePlayer.play()
-                    isPlaying = true
-                    updatePlayPauseButton()
-                }
-            }
-        case .endSet:
-            repeatState = .none
-            repeatStartSeconds = nil
-            repeatEndSeconds = nil
-            updateRepeatUI(active: false, isStartActive: false, isEndActive: false)
-        }
-    }
-
-    private func enforceRepeatIfNeeded(currentSeconds: Double) async {
-        guard repeatState == .endSet,
-              let start = repeatStartSeconds,
-              let end = repeatEndSeconds else { return }
-
-        if currentSeconds >= end {
-            let startTime = Measurement(value: start, unit: UnitDuration.seconds)
-            try? await youTubePlayer?.seek(to: startTime, allowSeekAhead: true)
-        }
-    }
-
     private func applyThumbnail() {
         backgroundImageView.isHidden = SettingsStore.isBackgroundMotionEnabled
         backgroundImageView.contentMode = .scaleAspectFill
@@ -357,109 +297,4 @@ class PlayerViewController: UIViewController {
         guard let urlString = thumbnailURLString, let url = URL(string: urlString) else { return }
         backgroundImageView.kf.setImage(with: url)
     }
-
-    private func startPlaybackTimer() {
-        playbackTimer?.invalidate()
-        playbackTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            Task { [weak self] in
-                await self?.updatePlaybackTime()
-            }
-        }
-    }
-
-    private func stopPlaybackTimer() {
-        playbackTimer?.invalidate()
-        playbackTimer = nil
-    }
-
-    private func updateDurationIfNeeded() async {
-        guard let youTubePlayer else { return }
-        if durationSeconds != nil { return }
-        if let duration = try? await youTubePlayer.getDuration() {
-            let durationValue = duration.converted(to: .seconds).value
-            durationSeconds = durationValue
-            timeSlider.minimumValue = 0
-            timeSlider.maximumValue = Float(durationValue)
-            if totalTimeLabel.text?.isEmpty != false {
-                totalTimeLabel.text = formatTime(seconds: durationValue)
-            }
-            if chordTimeline.isEmpty && initialChordTimeline.isEmpty {
-                applyChordTimeline(ChordTimelineDemo.makeDemoTimeline(durationSeconds: durationValue))
-            }
-        }
-    }
-
-    private func updatePlaybackTime() async {
-        guard let youTubePlayer, !isSeeking else { return }
-        if durationSeconds == nil {
-            await updateDurationIfNeeded()
-        }
-        await updatePlaybackStateIfNeeded()
-        if let currentTime = try? await youTubePlayer.getCurrentTime() {
-            let currentValue = currentTime.converted(to: .seconds).value
-            nowTimeLabel.text = formatTime(seconds: currentValue)
-            timeSlider.value = Float(currentValue)
-            updateChordScroll(currentSeconds: currentValue)
-            await enforceRepeatIfNeeded(currentSeconds: currentValue)
-        }
-    }
-
-    private func seekBy(secondsDelta: Double) {
-        Task {
-            guard let youTubePlayer else { return }
-            let currentValue = (try? await youTubePlayer.getCurrentTime())?.converted(to: .seconds).value ?? 0
-            let durationValue = (try? await youTubePlayer.getDuration())?.converted(to: .seconds).value ?? durationSeconds ?? 0
-            let target = max(0, min(currentValue + secondsDelta, durationValue))
-            let targetTime = Measurement(value: target, unit: UnitDuration.seconds)
-            try? await youTubePlayer.seek(to: targetTime, allowSeekAhead: true)
-            nowTimeLabel.text = formatTime(seconds: target)
-            timeSlider.value = Float(target)
-        }
-    }
-
-    private func seekTo(seconds: Double) {
-        Task {
-            guard let youTubePlayer else { return }
-            let targetTime = Measurement(value: seconds, unit: UnitDuration.seconds)
-            try? await youTubePlayer.seek(to: targetTime, allowSeekAhead: true)
-        }
-    }
-
-    private func updateChordScroll(currentSeconds: Double) {
-        guard !chordTimeline.isEmpty else { return }
-        let currentMs = Int(currentSeconds * 1000)
-        let index = chordIndex(for: currentMs)
-        guard index != currentChordIndex else { return }
-        currentChordIndex = index
-
-        let indexPath = IndexPath(item: index, section: 0)
-        DispatchQueue.main.async { [weak self] in
-            self?.chordCollectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
-        }
-    }
-
-    private func chordIndex(for currentMs: Int) -> Int {
-        var low = 0
-        var high = chordTimeline.count - 1
-        var result = 0
-
-        while low <= high {
-            let mid = (low + high) / 2
-            if chordTimeline[mid].timeMs <= currentMs {
-                result = mid
-                low = mid + 1
-            } else {
-                high = mid - 1
-            }
-        }
-        return result
-    }
-
-    private func formatTime(seconds: Double) -> String {
-        let totalSeconds = max(0, Int(seconds))
-        let minutes = totalSeconds / 60
-        let secondsPart = totalSeconds % 60
-        return String(format: "%d:%02d", minutes, secondsPart)
-    }
 }
-
